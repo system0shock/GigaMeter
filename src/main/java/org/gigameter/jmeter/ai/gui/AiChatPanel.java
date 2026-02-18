@@ -22,8 +22,9 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
-import org.gigameter.jmeter.ai.service.ClaudeService;
+import org.gigameter.jmeter.ai.service.DeepSeekService;
 import org.gigameter.jmeter.ai.service.GigaChatService;
+import org.gigameter.jmeter.ai.plan.PlanCommandHandler;
 import org.gigameter.jmeter.ai.usage.UsageCommandHandler;
 import org.gigameter.jmeter.ai.utils.AiConfig;
 import org.gigameter.jmeter.ai.utils.JMeterElementManager;
@@ -36,9 +37,6 @@ import org.gigameter.jmeter.ai.wrap.WrapCommandHandler;
 import org.gigameter.jmeter.ai.wrap.WrapUndoRedoHandler;
 import org.gigameter.jmeter.ai.service.OpenAiService;
 import org.gigameter.jmeter.ai.service.AiService;
-
-import com.anthropic.models.ModelInfo;
-import com.anthropic.models.ModelListPage;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,7 +56,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JButton sendButton;
     private JComboBox<String> modelSelector;
     private List<String> conversationHistory;
-    private ClaudeService claudeService;
+    private DeepSeekService deepSeekService;
     private OpenAiService openAiService;
     private GigaChatService gigaChatService;
     private TreeNavigationButtons treeNavigationButtons;
@@ -86,7 +84,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      */
     public AiChatPanel() {
         // Initialize services and utilities
-        claudeService = new ClaudeService();
+        deepSeekService = new DeepSeekService();
         openAiService = new OpenAiService();
         gigaChatService = new GigaChatService();
         messageProcessor = new MessageProcessor();
@@ -134,8 +132,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     openAiService.setModel(selectedModel.substring(7));
                 } else if (selectedModel.startsWith("giga:")) {
                     gigaChatService.setModel(selectedModel.substring(5));
-                } else {
-                    claudeService.setModel(selectedModel);
+                } else if (selectedModel.startsWith("deepseek:")) {
+                    deepSeekService.setModel(selectedModel.substring(9));
                 }
             }
         });
@@ -411,22 +409,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         new SwingWorker<List<String>, Void>() {
             @Override
             protected List<String> doInBackground() {
-                // Get models from both services
+                // Get models from configured services
                 List<String> allModels = new ArrayList<>();
-
-                // Get Anthropic models
-                try {
-                    ModelListPage anthropicModels = Models.getAnthropicModels(claudeService.getClient());
-                    if (anthropicModels != null && anthropicModels.data() != null) {
-                        for (ModelInfo model : anthropicModels.data()) {
-                            allModels.add(model.id());
-                            log.debug("Added Anthropic model: {}", model.id());
-                        }
-                        log.info("Added {} Anthropic models", anthropicModels.data().size());
-                    }
-                } catch (Exception e) {
-                    log.error("Error loading Anthropic models: {}", e.getMessage(), e);
-                }
 
                 // Add OpenAI models
                 try {
@@ -456,6 +440,19 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     log.error("Error adding OpenAI models: {}", e.getMessage(), e);
                 }
 
+                // Add DeepSeek models
+                try {
+                    List<String> deepSeekModels = deepSeekService.getModelIds();
+                    for (String deepSeekModel : deepSeekModels) {
+                        String modelId = "deepseek:" + deepSeekModel;
+                        allModels.add(modelId);
+                        log.debug("Added DeepSeek model to selector: {}", modelId);
+                    }
+                    log.info("Added {} DeepSeek models to selector", deepSeekModels.size());
+                } catch (Exception e) {
+                    log.error("Error adding DeepSeek models: {}", e.getMessage(), e);
+                }
+
                 // Add GigaChat models
                 try {
                     List<String> gigaModels = gigaChatService.getModelIds();
@@ -479,15 +476,17 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     modelSelector.removeAllItems();
 
                     // Get the default model ID from configured provider
-                    String defaultService = AiConfig.getProperty("jmeter.ai.service.type", "anthropic");
+                    String defaultService = AiConfig.getProperty("jmeter.ai.service.type", "openai");
                     String defaultModelId;
                     if ("openai".equalsIgnoreCase(defaultService)) {
                         defaultModelId = "openai:" + openAiService.getCurrentModel();
+                    } else if ("deepseek".equalsIgnoreCase(defaultService)) {
+                        defaultModelId = "deepseek:" + deepSeekService.getCurrentModel();
                     } else if ("giga".equalsIgnoreCase(defaultService)
                             || "gigachat".equalsIgnoreCase(defaultService)) {
                         defaultModelId = "giga:" + gigaChatService.getCurrentModel();
                     } else {
-                        defaultModelId = claudeService.getCurrentModel();
+                        defaultModelId = "openai:" + openAiService.getCurrentModel();
                     }
                     log.info("Default model ID: {}", defaultModelId);
 
@@ -513,8 +512,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                                 openAiService.setModel(selectedModel.substring(7));
                             } else if (selectedModel.startsWith("giga:")) {
                                 gigaChatService.setModel(selectedModel.substring(5));
-                            } else {
-                                claudeService.setModel(selectedModel);
+                            } else if (selectedModel.startsWith("deepseek:")) {
+                                deepSeekService.setModel(selectedModel.substring(9));
                             }
                         }
                         log.info("Default model not found, selected first available: {}", selectedModel);
@@ -629,6 +628,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return;
         } else if (message.trim().startsWith("@usage")) {
             handleUsageCommand();
+            return;
+        } else if (message.trim().startsWith("@plan")) {
+            handlePlanCommand(message);
             return;
         }
 
@@ -1080,8 +1082,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 serviceToUse = openAiService;
             } else if (selectedModel.startsWith("giga:")) {
                 serviceToUse = gigaChatService;
-            } else if (selectedModel.startsWith("claude")) {
-                serviceToUse = claudeService;
+            } else if (selectedModel.startsWith("deepseek:")) {
+                serviceToUse = deepSeekService;
             }
         }
         AiService finalServiceToUse = serviceToUse;
@@ -1110,6 +1112,46 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     } catch (BadLocationException ex) {
                         log.error("Error displaying error message", ex);
                     }
+                    messageField.setEnabled(true);
+                    sendButton.setEnabled(true);
+                    messageField.requestFocusInWindow();
+                }
+            }
+        }.execute();
+    }
+
+    private void handlePlanCommand(String message) {
+        log.info("Processing @plan command");
+        lastCommandType = LastCommandType.NONE;
+
+        messageField.setText("");
+        messageField.setEnabled(false);
+        sendButton.setEnabled(false);
+
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                AiService serviceToUse = getServiceForSelectedModel();
+                PlanCommandHandler planCommandHandler = new PlanCommandHandler(serviceToUse);
+                return planCommandHandler.processPlanCommand(message);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    removeLoadingIndicator();
+                    processAiResponse(get());
+                } catch (InterruptedException | ExecutionException e) {
+                    log.error("Error processing @plan command", e);
+                    removeLoadingIndicator();
+                    try {
+                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                                "Failed to process @plan command. Please try again.",
+                                Color.RED, false);
+                    } catch (BadLocationException ex) {
+                        log.error("Error displaying @plan error message", ex);
+                    }
+                } finally {
                     messageField.setEnabled(true);
                     sendButton.setEnabled(true);
                     messageField.requestFocusInWindow();
@@ -1278,9 +1320,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Get the currently selected model from the dropdown
         String selectedModel = (String) modelSelector.getSelectedItem();
         if (selectedModel == null) {
-            log.warn("No model selected in dropdown, using default Anthropic model: {}",
-                    claudeService.getCurrentModel());
-            return claudeService.generateResponse(new ArrayList<>(conversationHistory));
+            log.warn("No model selected in dropdown, using default OpenAI model: {}",
+                    openAiService.getCurrentModel());
+            return openAiService.generateResponse(new ArrayList<>(conversationHistory));
         }
 
         // Get the model ID
@@ -1302,16 +1344,15 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.info("Using GigaChat model: {}", gigaModelId);
             gigaChatService.setModel(gigaModelId);
             return gigaChatService.generateResponse(new ArrayList<>(conversationHistory));
-        } else {
-            // This is an Anthropic model
-            log.info("Using Anthropic model: {}", selectedModel);
-
-            // Set the model in the Claude service
-            claudeService.setModel(selectedModel);
-
-            // Call Claude API with conversation history
-            return claudeService.generateResponse(new ArrayList<>(conversationHistory));
+        } else if (selectedModel.startsWith("deepseek:")) {
+            String deepSeekModelId = selectedModel.substring(9); // Remove "deepseek:" prefix
+            log.info("Using DeepSeek model: {}", deepSeekModelId);
+            deepSeekService.setModel(deepSeekModelId);
+            return deepSeekService.generateResponse(new ArrayList<>(conversationHistory));
         }
+
+        log.warn("Unsupported model prefix: {}, fallback to OpenAI", selectedModel);
+        return openAiService.generateResponse(new ArrayList<>(conversationHistory));
     }
 
     /**
@@ -1469,7 +1510,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private AiService getServiceForSelectedModel() {
         String selectedModel = (String) modelSelector.getSelectedItem();
         if (selectedModel == null) {
-            return claudeService;
+            return openAiService;
         }
         if (selectedModel.startsWith("openai:")) {
             return openAiService;
@@ -1477,7 +1518,10 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         if (selectedModel.startsWith("giga:")) {
             return gigaChatService;
         }
-        return claudeService;
+        if (selectedModel.startsWith("deepseek:")) {
+            return deepSeekService;
+        }
+        return openAiService;
     }
 
     /**
