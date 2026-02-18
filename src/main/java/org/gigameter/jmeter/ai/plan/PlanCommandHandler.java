@@ -241,6 +241,7 @@ public class PlanCommandHandler {
         if (tgNode == null) {
             return "Failed to find created Thread Group node.";
         }
+        PlanApplyUndoStore.save(tgNode);
         configureThreadGroup(tgNode, threadGroup);
 
         JsonNode defaults = draft.path("defaults");
@@ -315,6 +316,31 @@ public class PlanCommandHandler {
                 "- Skipped steps: " + skippedCount + "\n" +
                 "- Scope: backend HTTP structure, status assertions, JSON extractors.\n" +
                 "- Note: request body/query mapping is basic; headers are added as structure in this MVP.";
+    }
+
+    public static String undoLastAppliedPlan() {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return "JMeter GUI is not available, cannot rollback.";
+        }
+
+        JMeterTreeNode appliedThreadGroup = PlanApplyUndoStore.getLastAppliedThreadGroup();
+        if (appliedThreadGroup == null) {
+            return "Nothing to rollback for @plan apply.";
+        }
+
+        try {
+            if (appliedThreadGroup.getParent() != null) {
+                guiPackage.getTreeModel().removeNodeFromParent(appliedThreadGroup);
+                guiPackage.getMainFrame().repaint();
+                PlanApplyUndoStore.clear();
+                return "Rollback completed: last AI-generated Thread Group was removed.";
+            }
+            PlanApplyUndoStore.clear();
+            return "Nothing to rollback for @plan apply.";
+        } catch (Exception e) {
+            return "Rollback failed: " + e.getMessage();
+        }
     }
 
     private void selectNode(JMeterTreeNode node) {

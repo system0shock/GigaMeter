@@ -16,6 +16,7 @@ public class CommandIntellisenseProvider {
         commands.add("@lint");
         commands.add("@usage");
         commands.add("@plan");
+        commands.add("@rollback");
         commands.add("@optimize");
         commands.add("@this");
 
