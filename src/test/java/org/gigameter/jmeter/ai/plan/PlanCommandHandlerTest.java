@@ -31,6 +31,12 @@ class PlanCommandHandlerTest {
     }
 
     @Test
+    void undoPlanApplyWithoutStoredOperation() {
+        String response = PlanCommandHandler.undoLastAppliedPlan();
+        assertTrue(response.contains("cannot rollback") || response.contains("Nothing"));
+    }
+
+    @Test
     void buildsPreviewFromValidJson() {
         AiService aiService = mock(AiService.class);
         when(aiService.generateResponse(anyList())).thenReturn("{\n" +

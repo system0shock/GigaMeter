@@ -74,7 +74,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private enum LastCommandType {
         NONE,
         LINT,
-        WRAP
+        WRAP,
+        PLAN_APPLY
     }
 
     private LastCommandType lastCommandType = LastCommandType.NONE;
@@ -632,6 +633,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         } else if (message.trim().startsWith("@plan")) {
             handlePlanCommand(message);
             return;
+        } else if (message.trim().startsWith("@rollback")) {
+            handleRollbackCommand();
+            return;
         }
 
         log.info("Checking if message is an element request: '{}'", message);
@@ -1122,7 +1126,12 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
     private void handlePlanCommand(String message) {
         log.info("Processing @plan command");
-        lastCommandType = LastCommandType.NONE;
+        String normalized = message == null ? "" : message.trim();
+        if ("@plan apply".equalsIgnoreCase(normalized)) {
+            lastCommandType = LastCommandType.PLAN_APPLY;
+        } else {
+            lastCommandType = LastCommandType.NONE;
+        }
 
         messageField.setText("");
         messageField.setEnabled(false);
@@ -1150,6 +1159,64 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                                 Color.RED, false);
                     } catch (BadLocationException ex) {
                         log.error("Error displaying @plan error message", ex);
+                    }
+                } finally {
+                    messageField.setEnabled(true);
+                    sendButton.setEnabled(true);
+                    messageField.requestFocusInWindow();
+                }
+            }
+        }.execute();
+    }
+
+    private void handleRollbackCommand() {
+        log.info("Processing @rollback command");
+
+        messageField.setText("");
+        messageField.setEnabled(false);
+        sendButton.setEnabled(false);
+
+        new SwingWorker<String, Void>() {
+            @Override
+            protected String doInBackground() {
+                switch (lastCommandType) {
+                    case PLAN_APPLY:
+                        return PlanCommandHandler.undoLastAppliedPlan();
+                    case LINT:
+                        return new LintCommandHandler(getServiceForSelectedModel()).undoLastRename();
+                    case WRAP:
+                        return WrapUndoRedoHandler.getInstance().undoLastWrap();
+                    default:
+                        String planRollback = PlanCommandHandler.undoLastAppliedPlan();
+                        if (!planRollback.startsWith("Nothing")) {
+                            return planRollback;
+                        }
+                        String lintRollback = new LintCommandHandler(getServiceForSelectedModel()).undoLastRename();
+                        if (!lintRollback.startsWith("Nothing")) {
+                            return lintRollback;
+                        }
+                        String wrapRollback = WrapUndoRedoHandler.getInstance().undoLastWrap();
+                        if (!wrapRollback.startsWith("Nothing")) {
+                            return wrapRollback;
+                        }
+                        return "Nothing to rollback.";
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    removeLoadingIndicator();
+                    processAiResponse(get());
+                } catch (InterruptedException | ExecutionException e) {
+                    log.error("Error processing @rollback command", e);
+                    removeLoadingIndicator();
+                    try {
+                        messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                                "Failed to process @rollback command. Please try again.",
+                                Color.RED, false);
+                    } catch (BadLocationException ex) {
+                        log.error("Error displaying @rollback error message", ex);
                     }
                 } finally {
                     messageField.setEnabled(true);
