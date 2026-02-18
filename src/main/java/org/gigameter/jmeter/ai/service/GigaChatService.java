@@ -1,7 +1,6 @@
 package org.gigameter.jmeter.ai.service;
 
 import org.gigameter.jmeter.ai.utils.AiConfig;
-import org.gigameter.jmeter.ai.usage.GigaChatUsage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,7 +84,6 @@ public class GigaChatService implements AiService {
             String payload = buildChatPayload(conversation);
             String response = httpRequest("POST", apiBaseUrl + "/chat/completions", payload,
                     "Bearer " + accessToken, "application/json");
-            GigaChatUsage.getInstance().recordUsageFromResponse(response, currentModelId);
 
             String content = extractAssistantContent(response);
             if (content == null || content.isEmpty()) {
