@@ -17,8 +17,10 @@ import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -46,6 +48,9 @@ public class PlanCommandHandler {
         if ("apply".equalsIgnoreCase(scenario)) {
             return applyLatestPlan();
         }
+        if ("analyze".equalsIgnoreCase(scenario)) {
+            return analyzeCurrentPlan();
+        }
 
         try {
             String prompt = buildPrompt(scenario);
@@ -62,7 +67,7 @@ public class PlanCommandHandler {
     }
 
     private String usageMessage() {
-        return "Usage: @plan <backend scenario> OR @plan apply. Example: @plan Login, get token, list products, add to cart, checkout. 100 users, ramp-up 60s, duration 10m.";
+        return "Usage: @plan <backend scenario> OR @plan apply OR @plan analyze. Example: @plan Login, get token, list products, add to cart, checkout. 100 users, ramp-up 60s, duration 10m.";
     }
 
     private String buildPrompt(String scenario) {
@@ -419,6 +424,88 @@ public class PlanCommandHandler {
                 "- Scope: backend HTTP structure, headers/query/body mapping, status assertions, JSON extractors, timers, CSV data set.";
     }
 
+    private String analyzeCurrentPlan() {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            return "JMeter GUI is not available, cannot analyze plan.";
+        }
+        if (guiPackage.getTreeModel() == null || guiPackage.getTreeModel().getRoot() == null) {
+            return "Test plan is empty or unavailable.";
+        }
+
+        Object rootObj = guiPackage.getTreeModel().getRoot();
+        if (!(rootObj instanceof JMeterTreeNode)) {
+            return "Unexpected test plan tree structure.";
+        }
+
+        JMeterTreeNode root = (JMeterTreeNode) rootObj;
+        List<JMeterTreeNode> threadGroups = new ArrayList<>();
+        collectThreadGroups(root, threadGroups);
+
+        if (threadGroups.isEmpty()) {
+            return "No Thread Group found in current test plan.";
+        }
+
+        StringBuilder out = new StringBuilder();
+        out.append("# Test Plan Analysis\n\n");
+        out.append("## Summary\n");
+        out.append("- Thread Groups: ").append(threadGroups.size()).append("\n\n");
+
+        for (int i = 0; i < threadGroups.size(); i++) {
+            JMeterTreeNode tgNode = threadGroups.get(i);
+            out.append("## Thread Group ").append(i + 1).append(": ").append(tgNode.getName()).append("\n");
+
+            TestElement tgElement = tgNode.getTestElement();
+            int users = getIntByMethodOrProperty(tgElement, "getNumThreads", "ThreadGroup.num_threads", 1);
+            int rampUp = getIntByMethodOrProperty(tgElement, "getRampUp", "ThreadGroup.ramp_time", 1);
+            int duration = parseIntSafe(tgElement.getPropertyAsString("ThreadGroup.duration"), 0);
+            boolean scheduler = Boolean.parseBoolean(tgElement.getPropertyAsString("ThreadGroup.scheduler"));
+
+            out.append("- Users: ").append(users).append("\n");
+            out.append("- Ramp-up (s): ").append(rampUp).append("\n");
+            out.append("- Scheduler: ").append(scheduler ? "enabled" : "disabled").append("\n");
+            if (scheduler && duration > 0) {
+                out.append("- Duration (s): ").append(duration).append("\n");
+            }
+
+            double startRate = rampUp > 0 ? ((double) users / rampUp) : users;
+            out.append("- Intensity: up to ").append(users).append(" concurrent users");
+            out.append(", ramp rate ~").append(String.format("%.2f", startRate)).append(" users/s");
+            if (scheduler && duration > 0) {
+                out.append(", planned duration ").append(duration).append(" s");
+            }
+            out.append("\n");
+
+            int httpSamplers = countNodesByClassContains(tgNode, "HTTPSampler");
+            int jsr223Samplers = countNodesByClassContains(tgNode, "JSR223Sampler");
+            int txControllers = countNodesByClassContains(tgNode, "TransactionController");
+            int assertions = countNodesByClassContains(tgNode, "Assertion");
+            int extractors = countNodesByClassContains(tgNode, "PostProcessor");
+            int timers = countNodesByClassContains(tgNode, "Timer");
+
+            out.append("- HTTP Samplers: ").append(httpSamplers).append("\n");
+            out.append("- JSR223 Samplers: ").append(jsr223Samplers).append("\n");
+            out.append("- Transaction Controllers: ").append(txControllers).append("\n");
+            out.append("- Assertions: ").append(assertions).append("\n");
+            out.append("- Extractors/Post-processors: ").append(extractors).append("\n");
+            out.append("- Timers: ").append(timers).append("\n\n");
+
+            List<String> steps = new ArrayList<>();
+            collectScenarioSteps(tgNode, steps);
+            out.append("### Scenario Steps\n");
+            if (steps.isEmpty()) {
+                out.append("- No executable samplers found.\n\n");
+            } else {
+                for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
+                    out.append(stepIndex + 1).append(". ").append(steps.get(stepIndex)).append("\n");
+                }
+                out.append("\n");
+            }
+        }
+
+        return out.toString();
+    }
+
     public static String undoLastAppliedPlan() {
         GuiPackage guiPackage = GuiPackage.getInstance();
         if (guiPackage == null) {
@@ -484,6 +571,107 @@ public class PlanCommandHandler {
         threadGroup.setRampUp(Math.max(rampUp, 1));
         threadGroup.setProperty("ThreadGroup.scheduler", "true");
         threadGroup.setProperty("ThreadGroup.duration", String.valueOf(Math.max(duration, 1)));
+    }
+
+    private void collectThreadGroups(JMeterTreeNode node, List<JMeterTreeNode> out) {
+        if (node == null) {
+            return;
+        }
+        TestElement element = node.getTestElement();
+        if (element != null && element.getClass().getSimpleName().contains("ThreadGroup")) {
+            out.add(node);
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            Object child = node.getChildAt(i);
+            if (child instanceof JMeterTreeNode) {
+                collectThreadGroups((JMeterTreeNode) child, out);
+            }
+        }
+    }
+
+    private int getIntByMethodOrProperty(TestElement element, String methodName, String propertyName, int fallback) {
+        if (element == null) {
+            return fallback;
+        }
+
+        try {
+            Method method = element.getClass().getMethod(methodName);
+            Object value = method.invoke(element);
+            if (value instanceof Number) {
+                return ((Number) value).intValue();
+            }
+        } catch (Exception ignored) {
+            // Fall back to property.
+        }
+
+        return parseIntSafe(element.getPropertyAsString(propertyName), fallback);
+    }
+
+    private int parseIntSafe(String value, int fallback) {
+        if (value == null || value.trim().isEmpty()) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private int countNodesByClassContains(JMeterTreeNode node, String token) {
+        if (node == null || token == null || token.isEmpty()) {
+            return 0;
+        }
+
+        int count = 0;
+        TestElement element = node.getTestElement();
+        if (element != null && element.getClass().getSimpleName().contains(token)) {
+            count++;
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            Object child = node.getChildAt(i);
+            if (child instanceof JMeterTreeNode) {
+                count += countNodesByClassContains((JMeterTreeNode) child, token);
+            }
+        }
+        return count;
+    }
+
+    private void collectScenarioSteps(JMeterTreeNode node, List<String> steps) {
+        if (node == null || steps == null) {
+            return;
+        }
+
+        TestElement element = node.getTestElement();
+        if (element != null) {
+            String className = element.getClass().getSimpleName();
+            if (className.contains("HTTPSampler")) {
+                String method = element.getPropertyAsString("HTTPSampler.method");
+                String path = element.getPropertyAsString("HTTPSampler.path");
+                if (method == null || method.isEmpty()) {
+                    method = "GET";
+                }
+                if (path == null || path.isEmpty()) {
+                    path = "/";
+                }
+                steps.add(node.getName() + " - " + method + " " + path);
+            } else if (className.contains("JSR223Sampler")) {
+                String language = element.getPropertyAsString("scriptLanguage");
+                if (language == null || language.isEmpty()) {
+                    language = "groovy";
+                }
+                steps.add(node.getName() + " - JSR223 " + language);
+            }
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            Object child = node.getChildAt(i);
+            if (child instanceof JMeterTreeNode) {
+                collectScenarioSteps((JMeterTreeNode) child, steps);
+            }
+        }
     }
 
     private void configureHttpSampler(JMeterTreeNode node, JsonNode step, String baseUrl) {
