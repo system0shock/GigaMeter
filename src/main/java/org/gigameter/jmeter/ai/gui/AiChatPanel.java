@@ -55,6 +55,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JTextArea messageField;
     private JButton sendButton;
     private JComboBox<String> modelSelector;
+    private JCheckBox contextToggle;
     private List<String> conversationHistory;
     private DeepSeekService deepSeekService;
     private OpenAiService openAiService;
@@ -141,7 +142,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Create a panel for the chat area with header
         JPanel chatPanel = new JPanel(new BorderLayout());
-        chatPanel.setBorder(BorderFactory.createMatteBorder(0, 1, 1, 1, Color.LIGHT_GRAY));
+        chatPanel.setBorder(BorderFactory.createMatteBorder(0, 1, 1, 1, getBorderColor()));
 
         // Create a header panel for the title and new chat button
         JPanel headerPanel = createHeaderPanel();
@@ -154,6 +155,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         Font defaultFont = UIManager.getFont("TextField.font");
         Font largerFont = new Font(defaultFont.getFamily(), defaultFont.getStyle(), defaultFont.getSize() + 2);
         chatArea.setFont(largerFont);
+        chatArea.setForeground(getPrimaryTextColor());
 
         // Store the base font size for scaling
         baseChatFontSize = largerFont.getSize2D();
@@ -231,7 +233,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         try {
                                     messageProcessor.appendMessage(chatArea.getStyledDocument(),
                                     "Повтор (redo) для @wrap не поддерживается. При необходимости запустите @wrap снова.",
-                                    Color.BLUE, false);
+                                    getInfoTextColor(), false);
                         } catch (BadLocationException ex) {
                             log.error("Error displaying message", ex);
                         }
@@ -250,7 +252,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                                 try {
                                     messageProcessor.appendMessage(chatArea.getStyledDocument(),
                                             "Повтор (redo) для @wrap не поддерживается. При необходимости запустите @wrap снова.",
-                                            Color.BLUE, false);
+                                            getInfoTextColor(), false);
                                 } catch (BadLocationException ex) {
                                     log.error("Error displaying message", ex);
                                 }
@@ -280,13 +282,17 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         JLabel modelLabel = new JLabel("Модель: ");
         modelPanel.add(modelLabel);
         modelPanel.add(modelSelector);
+        contextToggle = new JCheckBox("Контекст");
+        contextToggle.setSelected(isContextEnabledByProperty());
+        contextToggle.setToolTipText("Добавлять контекст JMeter к обычным сообщениям чата");
+        modelPanel.add(contextToggle);
         bottomPanel.add(modelPanel, BorderLayout.NORTH);
 
         // Create the navigation panel for tree navigation and element buttons
         navigationPanel = new JPanel();
         navigationPanel.setLayout(new FlowLayout(FlowLayout.LEFT, 5, 5));
         navigationPanel.setBorder(BorderFactory.createTitledBorder("Подсказки элементов"));
-        navigationPanel.setBackground(new Color(245, 245, 250)); // Light background to make it stand out
+        navigationPanel.setBackground(uiColor("Panel.background", new Color(245, 245, 250)));
 
         // Add navigation buttons to the panel
         navigationPanel.add(treeNavigationButtons.getUpButton());
@@ -317,11 +323,12 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         messageField.setLineWrap(true);
         messageField.setWrapStyleWord(true);
         messageField.setFont(largerFont);
+        messageField.setForeground(getPrimaryTextColor());
 
         // Store the base font size for scaling
         baseMessageFontSize = largerFont.getSize2D();
         messageField.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(Color.LIGHT_GRAY),
+                BorderFactory.createLineBorder(getBorderColor()),
                 BorderFactory.createEmptyBorder(5, 5, 5, 5)));
 
         // Setup intellisense for command suggestions
@@ -375,9 +382,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JPanel createHeaderPanel() {
         JPanel headerPanel = new JPanel(new BorderLayout());
         headerPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 1, 0, Color.LIGHT_GRAY),
+                BorderFactory.createMatteBorder(1, 0, 1, 0, getBorderColor()),
                 BorderFactory.createEmptyBorder(10, 12, 10, 12)));
-        headerPanel.setBackground(new Color(240, 240, 240));
+        headerPanel.setBackground(uiColor("Panel.background", new Color(240, 240, 240)));
 
         // Add a title to the left side of the header panel
         JLabel titleLabel = new JLabel("GigaMeter v" + VersionUtils.getVersion());
@@ -391,7 +398,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         newChatButton.setFocusPainted(false);
         newChatButton.setMargin(new Insets(0, 8, 0, 8));
         newChatButton.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(200, 200, 200), 1, true),
+                BorderFactory.createLineBorder(getBorderColor(), 1, true),
                 BorderFactory.createEmptyBorder(2, 8, 2, 8)));
 
         // Add action listener to reset the conversation
@@ -543,7 +550,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 "Чем помочь?";
 
         try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), welcomeMessage, new Color(0, 51, 102), true);
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), welcomeMessage, getInfoTextColor(), true);
         } catch (BadLocationException e) {
             log.error("Error displaying welcome message", e);
         }
@@ -581,7 +588,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Add the user message to the chat
         try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), "Вы: " + message, Color.BLACK, false);
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), "Вы: " + message, getPrimaryTextColor(), false);
         } catch (BadLocationException e) {
             log.error("Error appending user message to chat", e);
         }
@@ -594,14 +601,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Add thinking indicator
         try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), "GigaMeter думает...", Color.GRAY, false);
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), "GigaMeter думает...", getSecondaryTextColor(), false);
         } catch (BadLocationException e) {
             log.error("Error adding loading indicator", e);
         }
 
         // Check for special commands
         if (message.trim().startsWith("@this")) {
-            handleThisCommand();
+            handleThisCommand(message);
             return;
         } else if (message.trim().startsWith("@optimize")) {
             handleOptimizeCommand();
@@ -720,7 +727,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      * Handles the @this command to get information about the currently selected
      * element.
      */
-    private void handleThisCommand() {
+    private void handleThisCommand(String message) {
         log.info("Processing @this command");
 
         // Reset the last command type since this is not a lint or wrap command
@@ -739,7 +746,25 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 if (elementInfo == null) {
                     return "В плане тестирования не выбран элемент. Выберите элемент и повторите запрос.";
                 }
-                return elementInfo;
+                String question = extractThisQuery(message);
+                if (question.isEmpty()) {
+                    return elementInfo;
+                }
+
+                AiService serviceToUse = getServiceForSelectedModel();
+                if (serviceToUse == null) {
+                    return elementInfo;
+                }
+
+                try {
+                    List<String> prompt = new ArrayList<>();
+                    prompt.add(buildThisQuestionPrompt(question, elementInfo));
+                    String aiResponse = serviceToUse.generateResponse(prompt);
+                    return (aiResponse == null || aiResponse.trim().isEmpty()) ? elementInfo : aiResponse;
+                } catch (Exception e) {
+                    log.warn("Failed to process @this question with AI, fallback to static info", e);
+                    return elementInfo;
+                }
             }
 
             @Override
@@ -944,6 +969,21 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         }
     }
 
+    private String extractThisQuery(String message) {
+        if (message == null) {
+            return "";
+        }
+        return message.trim().replaceFirst("^@this\\s*", "").trim();
+    }
+
+    private String buildThisQuestionPrompt(String question, String elementInfo) {
+        return "Ты ассистент по JMeter. Отвечай только на русском языке.\n" +
+                "Ниже вопрос пользователя и контекст выбранного элемента тест-плана.\n" +
+                "Объясни, что делает элемент в сценарии, на что влияет, какие риски и как улучшить конфигурацию.\n\n" +
+                "Вопрос:\n" + question + "\n\n" +
+                "Контекст элемента:\n" + elementInfo;
+    }
+
     /**
      * Gets context-aware element suggestions based on the node type.
      * 
@@ -1037,7 +1077,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Add the AI response to the chat
         log.info("Appending AI response to chat");
         try {
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), response, new Color(0, 51, 102), true);
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), response, getInfoTextColor(), true);
         } catch (BadLocationException e) {
             log.error("Error appending AI response to chat", e);
         }
@@ -1308,7 +1348,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         try {
             // Add user message to chat
-            messageProcessor.appendMessage(chatArea.getStyledDocument(), message, Color.BLACK, true);
+            messageProcessor.appendMessage(chatArea.getStyledDocument(), message, getPrimaryTextColor(), true);
         } catch (BadLocationException e) {
             log.error("Error adding message to chat", e);
         }
@@ -1383,13 +1423,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      */
     private String getAiResponse(String message) {
         log.info("Getting AI response for message: {}", message);
+        List<String> requestConversation = buildConversationForAi();
 
         // Get the currently selected model from the dropdown
         String selectedModel = (String) modelSelector.getSelectedItem();
         if (selectedModel == null) {
             log.warn("No model selected in dropdown, using default OpenAI model: {}",
                     openAiService.getCurrentModel());
-            return openAiService.generateResponse(new ArrayList<>(conversationHistory));
+            return openAiService.generateResponse(requestConversation);
         }
 
         // Get the model ID
@@ -1405,21 +1446,119 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             openAiService.setModel(openAiModelId);
 
             // Call OpenAI API with conversation history
-            return openAiService.generateResponse(new ArrayList<>(conversationHistory));
+            return openAiService.generateResponse(requestConversation);
         } else if (selectedModel.startsWith("giga:")) {
             String gigaModelId = selectedModel.substring(5); // Remove "giga:" prefix
             log.info("Using GigaChat model: {}", gigaModelId);
             gigaChatService.setModel(gigaModelId);
-            return gigaChatService.generateResponse(new ArrayList<>(conversationHistory));
+            return gigaChatService.generateResponse(requestConversation);
         } else if (selectedModel.startsWith("deepseek:")) {
             String deepSeekModelId = selectedModel.substring(9); // Remove "deepseek:" prefix
             log.info("Using DeepSeek model: {}", deepSeekModelId);
             deepSeekService.setModel(deepSeekModelId);
-            return deepSeekService.generateResponse(new ArrayList<>(conversationHistory));
+            return deepSeekService.generateResponse(requestConversation);
         }
 
         log.warn("Unsupported model prefix: {}, fallback to OpenAI", selectedModel);
-        return openAiService.generateResponse(new ArrayList<>(conversationHistory));
+        return openAiService.generateResponse(requestConversation);
+    }
+
+    private List<String> buildConversationForAi() {
+        List<String> requestConversation = new ArrayList<>(conversationHistory);
+        if (requestConversation.isEmpty()) {
+            return requestConversation;
+        }
+
+        if (!isChatContextEnabled()) {
+            return requestConversation;
+        }
+
+        int lastIndex = requestConversation.size() - 1;
+        String lastMessage = requestConversation.get(lastIndex);
+        if (lastMessage == null || lastMessage.trim().isEmpty() || lastMessage.trim().startsWith("@")) {
+            return requestConversation;
+        }
+
+        String context = buildOptionalChatContext();
+        if (context.isEmpty()) {
+            return requestConversation;
+        }
+
+        requestConversation.set(lastIndex,
+                lastMessage + "\n\n[Контекст JMeter]\n" + context + "\n[/Контекст JMeter]");
+        return requestConversation;
+    }
+
+    private boolean isChatContextEnabled() {
+        if (contextToggle != null) {
+            return contextToggle.isSelected();
+        }
+        return isContextEnabledByProperty();
+    }
+
+    private boolean isContextEnabledByProperty() {
+        String enabled = AiConfig.getProperty("gigameter.chat.context.enabled", "false");
+        return "true".equalsIgnoreCase(enabled) || "1".equals(enabled) || "yes".equalsIgnoreCase(enabled);
+    }
+
+    private String buildOptionalChatContext() {
+        String mode = AiConfig.getProperty("gigameter.chat.context.mode", "selected").trim().toLowerCase();
+        StringBuilder context = new StringBuilder();
+
+        boolean includeSelected = "selected".equals(mode) || "selected+plan".equals(mode) || "all".equals(mode);
+        boolean includePlan = "plan".equals(mode) || "selected+plan".equals(mode) || "all".equals(mode);
+
+        if (includeSelected) {
+            String selected = getCurrentElementInfo();
+            if (selected != null && !selected.trim().isEmpty()) {
+                context.append("Выбранный элемент:\n").append(selected).append("\n\n");
+            }
+        }
+        if (includePlan) {
+            String planSummary = getTestPlanContextSummary();
+            if (!planSummary.isEmpty()) {
+                context.append("Сводка тест-плана:\n").append(planSummary);
+            }
+        }
+
+        return context.toString().trim();
+    }
+
+    private String getTestPlanContextSummary() {
+        try {
+            GuiPackage guiPackage = GuiPackage.getInstance();
+            if (guiPackage == null || guiPackage.getTreeModel() == null) {
+                return "";
+            }
+            Object rootObj = guiPackage.getTreeModel().getRoot();
+            if (!(rootObj instanceof JMeterTreeNode)) {
+                return "";
+            }
+
+            JMeterTreeNode root = (JMeterTreeNode) rootObj;
+            StringBuilder out = new StringBuilder();
+            out.append("- Корень: ").append(root.getName()).append("\n");
+
+            int threadGroupCount = 0;
+            for (int i = 0; i < root.getChildCount(); i++) {
+                Object child = root.getChildAt(i);
+                if (!(child instanceof JMeterTreeNode)) {
+                    continue;
+                }
+                JMeterTreeNode node = (JMeterTreeNode) child;
+                TestElement element = node.getTestElement();
+                if (element != null && element.getClass().getSimpleName().contains("ThreadGroup")) {
+                    threadGroupCount++;
+                    out.append("- TG ").append(threadGroupCount).append(": ").append(node.getName())
+                            .append(" (элементов: ").append(node.getChildCount()).append(")\n");
+                }
+            }
+            out.append("- Количество Thread Group: ").append(threadGroupCount);
+            return out.toString();
+        } catch (Exception e) {
+            log.debug("Failed to build test plan context summary", e);
+            return "";
+        }
     }
 
     /**
@@ -1450,7 +1589,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     String result = get();
                     // Display the result in the chat area
                     try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(), result, new Color(0, 51, 102),
+                        messageProcessor.appendMessage(chatArea.getStyledDocument(), result, getInfoTextColor(),
                                 false);
                     } catch (BadLocationException ex) {
                         log.error("Error displaying undo result", ex);
@@ -1489,7 +1628,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     String result = get();
                     // Display the result in the chat area
                     try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(), result, new Color(0, 51, 102),
+                        messageProcessor.appendMessage(chatArea.getStyledDocument(), result, getInfoTextColor(),
                                 false);
                     } catch (BadLocationException ex) {
                         log.error("Error displaying redo result", ex);
@@ -1527,7 +1666,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     String result = get();
                     // Display the result in the chat area
                     try {
-                        messageProcessor.appendMessage(chatArea.getStyledDocument(), result, new Color(0, 51, 102),
+                        messageProcessor.appendMessage(chatArea.getStyledDocument(), result, getInfoTextColor(),
                                 false);
                     } catch (BadLocationException ex) {
                         log.error("Error displaying wrap undo result", ex);
@@ -1574,6 +1713,35 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         messageField.setFont(newMessageFont);
     }
 
+    private Color uiColor(String key, Color fallback) {
+        Color color = UIManager.getColor(key);
+        return color != null ? color : fallback;
+    }
+
+    private Color getPrimaryTextColor() {
+        return uiColor("TextPane.foreground", Color.BLACK);
+    }
+
+    private Color getSecondaryTextColor() {
+        return uiColor("Label.disabledForeground", Color.GRAY);
+    }
+
+    private Color getInfoTextColor() {
+        Color info = UIManager.getColor("Link.foreground");
+        if (info != null) {
+            return info;
+        }
+        info = UIManager.getColor("Component.linkColor");
+        if (info != null) {
+            return info;
+        }
+        return uiColor("TextPane.foreground", new Color(0, 51, 102));
+    }
+
+    private Color getBorderColor() {
+        return uiColor("Separator.foreground", Color.LIGHT_GRAY);
+    }
+
     private AiService getServiceForSelectedModel() {
         String selectedModel = (String) modelSelector.getSelectedItem();
         if (selectedModel == null) {
@@ -1601,7 +1769,17 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         if ("lookAndFeel".equals(evt.getPropertyName())) {
             // Update font sizes based on the current scale
             updateFontSizes();
+            if (chatArea != null) {
+                chatArea.setForeground(getPrimaryTextColor());
+            }
+            if (messageField != null) {
+                messageField.setForeground(getPrimaryTextColor());
+            }
+            if (navigationPanel != null) {
+                navigationPanel.setBackground(uiColor("Panel.background", new Color(245, 245, 250)));
+            }
         }
     }
 }
+
 

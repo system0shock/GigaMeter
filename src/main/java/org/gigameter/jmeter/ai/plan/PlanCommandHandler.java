@@ -20,8 +20,12 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Handles @plan command and returns preview of generated backend test plan.
@@ -427,15 +431,15 @@ public class PlanCommandHandler {
     private String analyzeCurrentPlan() {
         GuiPackage guiPackage = GuiPackage.getInstance();
         if (guiPackage == null) {
-            return "JMeter GUI is not available, cannot analyze plan.";
+            return "GUI JMeter недоступен, анализ плана выполнить нельзя.";
         }
         if (guiPackage.getTreeModel() == null || guiPackage.getTreeModel().getRoot() == null) {
-            return "Test plan is empty or unavailable.";
+            return "Тест-план пустой или недоступен.";
         }
 
         Object rootObj = guiPackage.getTreeModel().getRoot();
         if (!(rootObj instanceof JMeterTreeNode)) {
-            return "Unexpected test plan tree structure.";
+            return "Неожиданная структура дерева тест-плана.";
         }
 
         JMeterTreeNode root = (JMeterTreeNode) rootObj;
@@ -443,13 +447,13 @@ public class PlanCommandHandler {
         collectThreadGroups(root, threadGroups);
 
         if (threadGroups.isEmpty()) {
-            return "No Thread Group found in current test plan.";
+            return "В текущем тест-плане не найдено ни одного Thread Group.";
         }
 
         StringBuilder out = new StringBuilder();
-        out.append("# Test Plan Analysis\n\n");
-        out.append("## Summary\n");
-        out.append("- Thread Groups: ").append(threadGroups.size()).append("\n\n");
+        out.append("# Анализ тест-плана\n\n");
+        out.append("## Сводка\n");
+        out.append("- Thread Group: ").append(threadGroups.size()).append("\n\n");
 
         for (int i = 0; i < threadGroups.size(); i++) {
             JMeterTreeNode tgNode = threadGroups.get(i);
@@ -461,46 +465,60 @@ public class PlanCommandHandler {
             int duration = parseIntSafe(tgElement.getPropertyAsString("ThreadGroup.duration"), 0);
             boolean scheduler = Boolean.parseBoolean(tgElement.getPropertyAsString("ThreadGroup.scheduler"));
 
-            out.append("- Users: ").append(users).append("\n");
-            out.append("- Ramp-up (s): ").append(rampUp).append("\n");
-            out.append("- Scheduler: ").append(scheduler ? "enabled" : "disabled").append("\n");
+            out.append("- Пользователи: ").append(users).append("\n");
+            out.append("- Ramp-up (с): ").append(rampUp).append("\n");
+            out.append("- Планировщик: ").append(scheduler ? "включен" : "выключен").append("\n");
             if (scheduler && duration > 0) {
-                out.append("- Duration (s): ").append(duration).append("\n");
+                out.append("- Длительность (с): ").append(duration).append("\n");
             }
 
             double startRate = rampUp > 0 ? ((double) users / rampUp) : users;
-            out.append("- Intensity: up to ").append(users).append(" concurrent users");
-            out.append(", ramp rate ~").append(String.format("%.2f", startRate)).append(" users/s");
+            out.append("- Интенсивность: до ").append(users).append(" одновременных пользователей");
+            out.append(", скорость разгона ~").append(String.format("%.2f", startRate)).append(" польз/с");
             if (scheduler && duration > 0) {
-                out.append(", planned duration ").append(duration).append(" s");
+                out.append(", плановая длительность ").append(duration).append(" с");
             }
             out.append("\n");
 
-            int httpSamplers = countNodesByClassContains(tgNode, "HTTPSampler");
-            int jsr223Samplers = countNodesByClassContains(tgNode, "JSR223Sampler");
-            int txControllers = countNodesByClassContains(tgNode, "TransactionController");
-            int assertions = countNodesByClassContains(tgNode, "Assertion");
-            int extractors = countNodesByClassContains(tgNode, "PostProcessor");
-            int timers = countNodesByClassContains(tgNode, "Timer");
+            PlanAnalysisStats stats = new PlanAnalysisStats();
+            collectFlowAndStats(tgNode, stats, 0);
 
-            out.append("- HTTP Samplers: ").append(httpSamplers).append("\n");
-            out.append("- JSR223 Samplers: ").append(jsr223Samplers).append("\n");
-            out.append("- Transaction Controllers: ").append(txControllers).append("\n");
-            out.append("- Assertions: ").append(assertions).append("\n");
-            out.append("- Extractors/Post-processors: ").append(extractors).append("\n");
-            out.append("- Timers: ").append(timers).append("\n\n");
+            out.append("- HTTP Sampler: ").append(stats.httpSamplers).append("\n");
+            out.append("- JSR223 Sampler: ").append(stats.jsr223Samplers).append("\n");
+            out.append("- Другие Sampler: ").append(stats.otherSamplers).append("\n");
+            out.append("- Контроллеры: ").append(stats.controllers).append("\n");
+            out.append("- Assertion: ").append(stats.assertions).append("\n");
+            out.append("- Pre-processor: ").append(stats.preProcessors).append("\n");
+            out.append("- Post-processor: ").append(stats.postProcessors).append("\n");
+            out.append("- Timer: ").append(stats.timers).append("\n");
+            out.append("- Config Element: ").append(stats.configElements).append("\n");
+            out.append("- Listener: ").append(stats.listeners).append("\n\n");
 
-            List<String> steps = new ArrayList<>();
-            collectScenarioSteps(tgNode, steps);
-            out.append("### Scenario Steps\n");
-            if (steps.isEmpty()) {
-                out.append("- No executable samplers found.\n\n");
+            out.append("### Поток выполнения\n");
+            if (stats.flowLines.isEmpty()) {
+                out.append("- Исполняемые sampler/controller элементы не найдены.\n\n");
             } else {
-                for (int stepIndex = 0; stepIndex < steps.size(); stepIndex++) {
-                    out.append(stepIndex + 1).append(". ").append(steps.get(stepIndex)).append("\n");
+                for (String flowLine : stats.flowLines) {
+                    out.append(flowLine).append("\n");
                 }
                 out.append("\n");
             }
+
+            out.append("### Сущности\n");
+            if (stats.entities.isEmpty()) {
+                out.append("- Недостаточно данных для вывода бизнес-сущностей.\n\n");
+            } else {
+                out.append("- ").append(String.join(", ", stats.entities)).append("\n\n");
+            }
+
+            String aiInterpretation = tryBuildBusinessInterpretationWithAi(tgNode.getName(), users, rampUp, scheduler, duration, stats);
+            if (!aiInterpretation.isEmpty()) {
+                out.append("### Бизнес-интерпретация (AI)\n");
+                out.append(aiInterpretation).append("\n\n");
+            }
+
+            out.append("### Интерпретация\n");
+            out.append(buildInterpretation(tgNode.getName(), users, rampUp, scheduler, duration, stats)).append("\n\n");
         }
 
         return out.toString();
@@ -619,59 +637,339 @@ public class PlanCommandHandler {
         }
     }
 
-    private int countNodesByClassContains(JMeterTreeNode node, String token) {
-        if (node == null || token == null || token.isEmpty()) {
-            return 0;
-        }
-
-        int count = 0;
-        TestElement element = node.getTestElement();
-        if (element != null && element.getClass().getSimpleName().contains(token)) {
-            count++;
-        }
-
-        for (int i = 0; i < node.getChildCount(); i++) {
-            Object child = node.getChildAt(i);
-            if (child instanceof JMeterTreeNode) {
-                count += countNodesByClassContains((JMeterTreeNode) child, token);
-            }
-        }
-        return count;
-    }
-
-    private void collectScenarioSteps(JMeterTreeNode node, List<String> steps) {
-        if (node == null || steps == null) {
+    private void collectFlowAndStats(JMeterTreeNode node, PlanAnalysisStats stats, int depth) {
+        if (node == null || stats == null) {
             return;
         }
 
         TestElement element = node.getTestElement();
-        if (element != null) {
+        if (element == null) {
+            return;
+        }
+
             String className = element.getClass().getSimpleName();
-            if (className.contains("HTTPSampler")) {
-                String method = element.getPropertyAsString("HTTPSampler.method");
-                String path = element.getPropertyAsString("HTTPSampler.path");
-                if (method == null || method.isEmpty()) {
-                    method = "GET";
+        if (className.contains("ThreadGroup")) {
+            for (int i = 0; i < node.getChildCount(); i++) {
+                Object child = node.getChildAt(i);
+                if (child instanceof JMeterTreeNode) {
+                    collectFlowAndStats((JMeterTreeNode) child, stats, depth);
                 }
-                if (path == null || path.isEmpty()) {
-                    path = "/";
-                }
-                steps.add(node.getName() + " - " + method + " " + path);
-            } else if (className.contains("JSR223Sampler")) {
-                String language = element.getPropertyAsString("scriptLanguage");
-                if (language == null || language.isEmpty()) {
-                    language = "groovy";
-                }
-                steps.add(node.getName() + " - JSR223 " + language);
             }
+            return;
+        }
+
+        int nextDepth = depth;
+        if (isController(className)) {
+            stats.controllers++;
+            stats.controllersByType.put(className, stats.controllersByType.getOrDefault(className, 0) + 1);
+            String controllerDescription = describeController(node, element, className, stats);
+            stats.flowLines.add(indent(depth) + "- " + controllerDescription);
+            nextDepth = depth + 1;
+        } else if (className.contains("HTTPSampler")) {
+            stats.httpSamplers++;
+            String method = safeUpper(textOrDefault(element.getProperty("HTTPSampler.method").getStringValue(), "GET"));
+            String path = textOrDefault(element.getProperty("HTTPSampler.path").getStringValue(), "/");
+            stats.httpMethods.add(method);
+            stats.httpPaths.add(path);
+            collectEntitiesFromPath(path, stats.entities);
+            stats.flowLines.add(indent(depth) + "- HTTP: " + node.getName() + " (" + method + " " + path + ")");
+        } else if (className.contains("JSR223Sampler")) {
+            stats.jsr223Samplers++;
+            String language = textOrDefault(element.getProperty("scriptLanguage").getStringValue(), "groovy");
+            stats.flowLines.add(indent(depth) + "- JSR223: " + node.getName() + " (" + language + ")");
+        } else if (className.contains("Sampler")) {
+            stats.otherSamplers++;
+            stats.flowLines.add(indent(depth) + "- Sampler: " + node.getName() + " (" + className + ")");
+        }
+
+        if (className.contains("Assertion")) {
+            stats.assertions++;
+        }
+        if (className.contains("PreProcessor")) {
+            stats.preProcessors++;
+        }
+        if (className.contains("PostProcessor")) {
+            stats.postProcessors++;
+            collectEntitiesFromVariableNames(element.getPropertyAsString("JSONPostProcessor.referenceNames"), stats.entities);
+        }
+        if (className.contains("Timer")) {
+            stats.timers++;
+        }
+        if (className.contains("Config")) {
+            stats.configElements++;
+        }
+        if (className.contains("Visualizer") || className.contains("ResultCollector") || className.contains("Listener")) {
+            stats.listeners++;
+        }
+        if (className.contains("CSVDataSet")) {
+            collectEntitiesFromVariableNames(element.getPropertyAsString("variableNames"), stats.entities);
         }
 
         for (int i = 0; i < node.getChildCount(); i++) {
             Object child = node.getChildAt(i);
             if (child instanceof JMeterTreeNode) {
-                collectScenarioSteps((JMeterTreeNode) child, steps);
+                collectFlowAndStats((JMeterTreeNode) child, stats, nextDepth);
             }
         }
+    }
+
+    private boolean isController(String className) {
+        return className != null
+                && className.contains("Controller")
+                && !className.contains("Header")
+                && !className.contains("Cookie")
+                && !className.contains("Cache")
+                && !className.contains("Auth")
+                && !className.contains("DNS")
+                && !className.contains("ThreadGroup");
+    }
+
+    private String describeController(JMeterTreeNode node, TestElement element, String className, PlanAnalysisStats stats) {
+        String name = node.getName();
+        if (className.contains("LoopController")) {
+            String loops = textOrDefault(firstNonEmptyProperty(element, "LoopController.loops", "loops"), "1");
+            boolean forever = "true".equalsIgnoreCase(firstNonEmptyProperty(element, "LoopController.continue_forever"));
+            String detail = forever ? "бесконечно" : loops + " итераций";
+            stats.loopDescriptions.add(name + " (" + detail + ")");
+            return "Цикл: " + name + " [" + detail + "]";
+        }
+        if (className.contains("WhileController")) {
+            String condition = textOrDefault(firstNonEmptyProperty(element, "WhileController.condition", "condition"), "<empty>");
+            stats.loopDescriptions.add(name + " (while " + condition + ")");
+            return "While: " + name + " [условие: " + condition + "]";
+        }
+        if (className.contains("ForeachController")) {
+            String inputVar = textOrDefault(firstNonEmptyProperty(element, "ForeachController.inputVal", "inputVal"), "var");
+            String outputVar = textOrDefault(firstNonEmptyProperty(element, "ForeachController.returnVal", "returnVal"), "item");
+            stats.loopDescriptions.add(name + " (foreach " + inputVar + " -> " + outputVar + ")");
+            return "Foreach: " + name + " [" + inputVar + " -> " + outputVar + "]";
+        }
+        if (className.contains("IfController")) {
+            String condition = textOrDefault(firstNonEmptyProperty(element, "IfController.condition", "condition"), "<empty>");
+            return "If: " + name + " [условие: " + condition + "]";
+        }
+        if (className.contains("TransactionController")) {
+            return "Транзакция: " + name;
+        }
+        if (className.contains("ThroughputController")) {
+            String percent = textOrDefault(firstNonEmptyProperty(element, "ThroughputController.percentThroughput"), "");
+            return percent.isEmpty() ? "Throughput: " + name : "Throughput: " + name + " [" + percent + "%]";
+        }
+        return "Контроллер: " + name + " (" + className + ")";
+    }
+
+    private String firstNonEmptyProperty(TestElement element, String... keys) {
+        if (element == null || keys == null) {
+            return "";
+        }
+        for (String key : keys) {
+            if (key == null || key.isEmpty()) {
+                continue;
+            }
+            String value = element.getPropertyAsString(key);
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
+    private String safeUpper(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return "GET";
+        }
+        return value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private String textOrDefault(String value, String fallback) {
+        return value == null || value.trim().isEmpty() ? fallback : value.trim();
+    }
+
+    private String indent(int depth) {
+        if (depth <= 0) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < depth; i++) {
+            sb.append("  ");
+        }
+        return sb.toString();
+    }
+
+    private void collectEntitiesFromPath(String path, Set<String> entities) {
+        if (path == null || path.trim().isEmpty() || entities == null) {
+            return;
+        }
+
+        String[] rawParts = path.split("[/?&=]");
+        for (String part : rawParts) {
+            String token = normalizeEntityToken(part);
+            if (token.isEmpty()) {
+                continue;
+            }
+            if (isIgnoredEntityToken(token)) {
+                continue;
+            }
+            entities.add(token);
+            if (entities.size() >= 12) {
+                return;
+            }
+        }
+    }
+
+    private void collectEntitiesFromVariableNames(String raw, Set<String> entities) {
+        if (raw == null || raw.trim().isEmpty() || entities == null) {
+            return;
+        }
+        String[] vars = raw.split("[,;\\s]+");
+        for (String varName : vars) {
+            String token = normalizeEntityToken(varName);
+            if (token.isEmpty() || isIgnoredEntityToken(token)) {
+                continue;
+            }
+            entities.add(token);
+            if (entities.size() >= 12) {
+                return;
+            }
+        }
+    }
+
+    private String normalizeEntityToken(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String cleaned = raw.toLowerCase(Locale.ROOT)
+                .replaceAll("\\$\\{", "")
+                .replaceAll("[^a-z0-9_\\-]", "");
+        if (cleaned.isEmpty() || cleaned.matches("\\d+")) {
+            return "";
+        }
+        if (cleaned.contains("-")) {
+            cleaned = cleaned.substring(cleaned.lastIndexOf('-') + 1);
+        }
+        if (cleaned.contains("_")) {
+            cleaned = cleaned.substring(cleaned.lastIndexOf('_') + 1);
+        }
+        return cleaned;
+    }
+
+    private boolean isIgnoredEntityToken(String token) {
+        return "api".equals(token)
+                || "rest".equals(token)
+                || "v1".equals(token)
+                || "v2".equals(token)
+                || "v3".equals(token)
+                || "http".equals(token)
+                || "https".equals(token)
+                || "id".equals(token)
+                || "all".equals(token)
+                || token.length() < 3;
+    }
+
+    private String buildInterpretation(String tgName, int users, int rampUp, boolean scheduler, int duration, PlanAnalysisStats stats) {
+        StringBuilder text = new StringBuilder();
+        text.append("Thread Group `").append(tgName).append("` поднимает до ").append(users)
+                .append(" виртуальных пользователей за ").append(Math.max(rampUp, 1)).append(" с");
+        if (scheduler && duration > 0) {
+            text.append(" и выполняется примерно ").append(duration).append(" с");
+        }
+        text.append(". ");
+
+        int totalSamplers = stats.httpSamplers + stats.jsr223Samplers + stats.otherSamplers;
+        text.append("В исполняемом потоке ").append(totalSamplers).append(" sampler-элементов (HTTP: ")
+                .append(stats.httpSamplers).append(", JSR223: ").append(stats.jsr223Samplers).append("). ");
+
+        if (!stats.loopDescriptions.isEmpty()) {
+            text.append("Обнаружены циклы/повторения: ").append(String.join("; ", stats.loopDescriptions)).append(". ");
+        } else {
+            text.append("Явные loop-контроллеры не обнаружены. ");
+        }
+
+        if (!stats.entities.isEmpty()) {
+            text.append("Вероятные бизнес-сущности под тестом: ").append(String.join(", ", stats.entities)).append(". ");
+        }
+
+        if (stats.assertions == 0) {
+            text.append("Assertion-элементы отсутствуют, функциональная проверка слабая.");
+        } else {
+            text.append("Настроено assertion-элементов: ").append(stats.assertions).append(".");
+        }
+        return text.toString();
+    }
+
+    private String tryBuildBusinessInterpretationWithAi(String tgName,
+                                                        int users,
+                                                        int rampUp,
+                                                        boolean scheduler,
+                                                        int duration,
+                                                        PlanAnalysisStats stats) {
+        if (aiService == null) {
+            return "";
+        }
+        try {
+            String prompt = buildBusinessInterpretationPrompt(tgName, users, rampUp, scheduler, duration, stats);
+            String response = aiService.generateResponse(Collections.singletonList(prompt));
+            if (response == null) {
+                return "";
+            }
+            String normalized = response.trim();
+            return normalized.isEmpty() ? "" : normalized;
+        } catch (Exception e) {
+            log.debug("AI interpretation for @plan analyze is unavailable: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    private String buildBusinessInterpretationPrompt(String tgName,
+                                                     int users,
+                                                     int rampUp,
+                                                     boolean scheduler,
+                                                     int duration,
+                                                     PlanAnalysisStats stats) {
+        StringBuilder flow = new StringBuilder();
+        int maxLines = Math.min(stats.flowLines.size(), 40);
+        for (int i = 0; i < maxLines; i++) {
+            flow.append(stats.flowLines.get(i)).append("\n");
+        }
+
+        return "Ты анализируешь JMeter тест-план.\n" +
+                "Выведи только русский текст, без markdown-кода и без английских фраз.\n" +
+                "Дай краткую и полезную интерпретацию (4-8 предложений).\n" +
+                "Постарайся понять бизнес-функционал скрипта: какие бизнес-процессы и сущности он моделирует, " +
+                "какие риски проверяет, где возможны пробелы покрытия.\n" +
+                "Если данных мало, явно укажи предположения.\n\n" +
+                "Данные анализа:\n" +
+                "- Thread Group: " + tgName + "\n" +
+                "- Users: " + users + "\n" +
+                "- Ramp-up: " + rampUp + " с\n" +
+                "- Scheduler: " + (scheduler ? "включен" : "выключен") + "\n" +
+                "- Duration: " + duration + " с\n" +
+                "- HTTP Samplers: " + stats.httpSamplers + "\n" +
+                "- JSR223 Samplers: " + stats.jsr223Samplers + "\n" +
+                "- Assertions: " + stats.assertions + "\n" +
+                "- Controllers: " + stats.controllers + "\n" +
+                "- Timers: " + stats.timers + "\n" +
+                "- Entities: " + (stats.entities.isEmpty() ? "нет явных" : String.join(", ", stats.entities)) + "\n\n" +
+                "Поток выполнения:\n" + flow;
+    }
+
+    private static class PlanAnalysisStats {
+        int httpSamplers;
+        int jsr223Samplers;
+        int otherSamplers;
+        int controllers;
+        int assertions;
+        int preProcessors;
+        int postProcessors;
+        int timers;
+        int configElements;
+        int listeners;
+        final Map<String, Integer> controllersByType = new LinkedHashMap<>();
+        final List<String> loopDescriptions = new ArrayList<>();
+        final List<String> flowLines = new ArrayList<>();
+        final Set<String> entities = new LinkedHashSet<>();
+        final Set<String> httpMethods = new LinkedHashSet<>();
+        final Set<String> httpPaths = new LinkedHashSet<>();
     }
 
     private void configureHttpSampler(JMeterTreeNode node, JsonNode step, String baseUrl) {
