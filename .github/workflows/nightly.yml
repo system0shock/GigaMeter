@@ -1,0 +1,85 @@
+name: Nightly Release
+
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: true
+
+jobs:
+  build-test-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Run unit tests
+        run: mvn -B test
+
+      - name: Build plugin
+        run: mvn -B -DskipTests package
+
+      - name: Run JMeter smoke test
+        env:
+          JMETER_VERSION: "5.6.2"
+        shell: pwsh
+        run: ./ci/smoke/run-smoke.ps1
+
+      - name: Run JMeter integration test
+        env:
+          JMETER_VERSION: "5.6.2"
+        shell: pwsh
+        run: ./ci/integration/run-integration.ps1
+
+      - name: Prepare release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATE_UTC="$(date -u +%Y%m%d)"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          mkdir -p dist
+
+          PLUGIN_JAR="$(find target -maxdepth 1 -type f -name 'jmeter-agent-*.jar' ! -name '*sources*' ! -name '*javadoc*' ! -name '*original*' | head -n 1)"
+          if [[ -z "${PLUGIN_JAR}" ]]; then
+            echo "Plugin JAR not found in target/."
+            exit 1
+          fi
+
+          cp "${PLUGIN_JAR}" "dist/jmeter-agent-nightly-${DATE_UTC}-${SHORT_SHA}.jar"
+          cp jmeter-ai-sample.properties dist/jmeter-ai-sample.properties
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+
+      - name: Upload nightly artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly
+          path: dist/
+
+      - name: Publish nightly release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: nightly
+          name: Nightly Build
+          body: |
+            Automated nightly build.
+            Commit: ${{ github.sha }}
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          artifacts: dist/*
+          artifactErrorsFailBuild: true
+          allowUpdates: true
+          replacesArtifacts: true
+          prerelease: true
