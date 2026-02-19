@@ -56,6 +56,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JButton sendButton;
     private JComboBox<String> modelSelector;
     private JCheckBox contextToggle;
+    private JComboBox<String> contextModeSelector;
     private List<String> conversationHistory;
     private DeepSeekService deepSeekService;
     private OpenAiService openAiService;
@@ -286,6 +287,15 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         contextToggle.setSelected(isContextEnabledByProperty());
         contextToggle.setToolTipText("Добавлять контекст JMeter к обычным сообщениям чата");
         modelPanel.add(contextToggle);
+        contextModeSelector = new JComboBox<>();
+        contextModeSelector.addItem("selected");
+        contextModeSelector.addItem("plan");
+        contextModeSelector.addItem("selected+plan");
+        contextModeSelector.setSelectedItem(getContextModeByProperty());
+        contextModeSelector.setToolTipText("Режим контекста для обычного чата");
+        contextModeSelector.setEnabled(contextToggle.isSelected());
+        contextToggle.addActionListener(e -> contextModeSelector.setEnabled(contextToggle.isSelected()));
+        modelPanel.add(contextModeSelector);
         bottomPanel.add(modelPanel, BorderLayout.NORTH);
 
         // Create the navigation panel for tree navigation and element buttons
@@ -761,9 +771,10 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     prompt.add(buildThisQuestionPrompt(question, elementInfo));
                     String aiResponse = serviceToUse.generateResponse(prompt);
                     return (aiResponse == null || aiResponse.trim().isEmpty()) ? elementInfo : aiResponse;
-                } catch (Exception e) {
+                } catch (Throwable e) {
                     log.warn("Failed to process @this question with AI, fallback to static info", e);
-                    return elementInfo;
+                    String fallback = getSelectedElementContextSummary();
+                    return (fallback == null || fallback.trim().isEmpty()) ? elementInfo : fallback;
                 }
             }
 
@@ -911,10 +922,29 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
             // Get all property names
             PropertyIterator propertyIterator = element.propertyIterator();
+            int shownProperties = 0;
             while (propertyIterator.hasNext()) {
                 JMeterProperty property = propertyIterator.next();
                 String propertyName = property.getName();
-                String propertyValue = property.getStringValue();
+                String propertyType = property.getClass().getSimpleName();
+                if (propertyType.contains("CollectionProperty")
+                        || propertyType.contains("MapProperty")
+                        || propertyType.contains("TestElementProperty")) {
+                    continue;
+                }
+                String propertyValue;
+                try {
+                    propertyValue = property.getStringValue();
+                } catch (Throwable t) {
+                    log.debug("Skipping property due to rendering error: {}", propertyName, t);
+                    continue;
+                }
+                if (propertyValue == null) {
+                    propertyValue = "";
+                }
+                if (propertyValue.length() > 500) {
+                    propertyValue = propertyValue.substring(0, 500) + "...";
+                }
 
                 // Skip empty properties and internal JMeter properties
                 if (!propertyValue.isEmpty() && !propertyName.startsWith("TestElement.")
@@ -924,6 +954,11 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     formattedName = formattedName.substring(0, 1).toUpperCase() + formattedName.substring(1);
 
                     info.append("- **").append(formattedName).append("**: ").append(propertyValue).append("\n");
+                    shownProperties++;
+                    if (shownProperties >= 40) {
+                        info.append("- ... (property list truncated)\n");
+                        break;
+                    }
                 }
             }
 
@@ -963,7 +998,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             }
 
             return info.toString();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             log.error("Error getting current element info", e);
             return "Ошибка получения информации об элементе: " + e.getMessage();
         }
@@ -1502,14 +1537,14 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     private String buildOptionalChatContext() {
-        String mode = AiConfig.getProperty("gigameter.chat.context.mode", "selected").trim().toLowerCase();
+        String mode = getContextMode();
         StringBuilder context = new StringBuilder();
 
         boolean includeSelected = "selected".equals(mode) || "selected+plan".equals(mode) || "all".equals(mode);
         boolean includePlan = "plan".equals(mode) || "selected+plan".equals(mode) || "all".equals(mode);
 
         if (includeSelected) {
-            String selected = getCurrentElementInfo();
+            String selected = getSelectedElementContextSummary();
             if (selected != null && !selected.trim().isEmpty()) {
                 context.append("Выбранный элемент:\n").append(selected).append("\n\n");
             }
@@ -1522,6 +1557,28 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         }
 
         return context.toString().trim();
+    }
+
+    private String getContextMode() {
+        if (contextModeSelector != null) {
+            Object selected = contextModeSelector.getSelectedItem();
+            if (selected != null) {
+                return selected.toString().trim().toLowerCase();
+            }
+        }
+        return getContextModeByProperty();
+    }
+
+    private String getContextModeByProperty() {
+        String mode = AiConfig.getProperty("gigameter.chat.context.mode", "selected");
+        if (mode == null) {
+            return "selected";
+        }
+        String normalized = mode.trim().toLowerCase();
+        if ("plan".equals(normalized) || "selected+plan".equals(normalized) || "all".equals(normalized)) {
+            return normalized;
+        }
+        return "selected";
     }
 
     private String getTestPlanContextSummary() {
@@ -1557,6 +1614,34 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return out.toString();
         } catch (Exception e) {
             log.debug("Failed to build test plan context summary", e);
+            return "";
+        }
+    }
+
+    private String getSelectedElementContextSummary() {
+        try {
+            GuiPackage guiPackage = GuiPackage.getInstance();
+            if (guiPackage == null || guiPackage.getTreeListener() == null) {
+                return "";
+            }
+
+            JMeterTreeNode currentNode = guiPackage.getTreeListener().getCurrentNode();
+            if (currentNode == null || currentNode.getTestElement() == null) {
+                return "";
+            }
+
+            TestElement element = currentNode.getTestElement();
+            StringBuilder out = new StringBuilder();
+            out.append("- Имя: ").append(currentNode.getName()).append("\n");
+            out.append("- Тип: ").append(element.getClass().getSimpleName()).append("\n");
+            out.append("- Дочерних: ").append(currentNode.getChildCount()).append("\n");
+            if (currentNode.getParent() instanceof JMeterTreeNode) {
+                JMeterTreeNode parent = (JMeterTreeNode) currentNode.getParent();
+                out.append("- Родитель: ").append(parent.getName());
+            }
+            return out.toString();
+        } catch (Throwable t) {
+            log.debug("Failed to build selected element summary", t);
             return "";
         }
     }
