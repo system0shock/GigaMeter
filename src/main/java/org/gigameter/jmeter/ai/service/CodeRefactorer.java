@@ -98,8 +98,10 @@ public class CodeRefactorer {
                 model = AiConfig.getProperty("openai.default.model", "gpt-4o");
             } else if ("giga".equalsIgnoreCase(aiServiceType) || "gigachat".equalsIgnoreCase(aiServiceType)) {
                 model = AiConfig.getProperty("giga.default.model", "GigaChat");
+            } else if ("deepseek".equalsIgnoreCase(aiServiceType)) {
+                model = AiConfig.getProperty("deepseek.default.model", "deepseek-chat");
             } else {
-                model = AiConfig.getProperty("claude.default.model", "claude-3-sonnet-20240229");
+                model = AiConfig.getProperty("openai.default.model", "gpt-4o");
             }
 
             String refactoredCode = aiService.generateResponse(List.of(prompt), model);

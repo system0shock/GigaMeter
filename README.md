@@ -5,7 +5,7 @@ GigaMeter — это плагин для Apache JMeter с AI-ассистент�
 ## Возможности
 
 - Чат с AI прямо в JMeter
-- Поддержка провайдеров: Anthropic Claude, OpenAI, Sber GigaChat
+- Поддержка провайдеров: OpenAI, Sber GigaChat, DeepSeek
 - Подсказки по элементам JMeter на основе контекста
 - Поддержка специальных команд в чате:
   - `@this`
@@ -41,16 +41,7 @@ GigaMeter — это плагин для Apache JMeter с AI-ассистент�
 
 - Общие:
   - `jmeter.ai.refactoring.enabled`
-  - `jmeter.ai.service.type` (`openai`, `anthropic`, `giga`)
-
-- Anthropic Claude:
-  - `anthropic.api.key`
-  - `claude.default.model`
-  - `claude.temperature`
-  - `claude.max.tokens`
-  - `claude.max.history.size`
-  - `claude.system.prompt`
-  - `anthropic.log.level`
+  - `jmeter.ai.service.type` (`openai`, `giga`, `deepseek`)
 
 - OpenAI:
   - `openai.api.key`
@@ -74,6 +65,16 @@ GigaMeter — это плагин для Apache JMeter с AI-ассистент�
   - `giga.timeout.ms`
   - `giga.ssl.insecure`
   - `giga.system.prompt`
+
+- DeepSeek:
+  - `deepseek.api.key`
+  - `deepseek.api.base.url`
+  - `deepseek.default.model`
+  - `deepseek.temperature`
+  - `deepseek.max.tokens`
+  - `deepseek.max.history.size`
+  - `deepseek.timeout.ms`
+  - `deepseek.system.prompt`
 
 ## Команды чата
 
@@ -116,5 +117,4 @@ GigaMeter — это плагин для Apache JMeter с AI-ассистент�
 
 - Issues: https://github.com/system0shock/GigaMeter/issues
 - Репозиторий: https://github.com/system0shock/GigaMeter
-
 

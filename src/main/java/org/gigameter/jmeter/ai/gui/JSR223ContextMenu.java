@@ -101,11 +101,6 @@ public class JSR223ContextMenu {
             String model = AiConfig.getProperty("openai.default.model", "");
             return apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
                     && model != null && !model.isEmpty();
-        } else if ("anthropic".equalsIgnoreCase(aiServiceType)) {
-            String apiKey = AiConfig.getProperty("anthropic.api.key", "");
-            String model = AiConfig.getProperty("claude.default.model", "");
-            return apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
-                    && model != null && !model.isEmpty();
         } else if ("giga".equalsIgnoreCase(aiServiceType) || "gigachat".equalsIgnoreCase(aiServiceType)) {
             String authKey = AiConfig.getProperty("giga.auth.key", "");
             String accessToken = AiConfig.getProperty("giga.access.token", "");
@@ -113,6 +108,10 @@ public class JSR223ContextMenu {
             boolean hasAuth = (authKey != null && !authKey.isEmpty())
                     || (accessToken != null && !accessToken.isEmpty());
             return hasAuth && model != null && !model.isEmpty();
+        } else if ("deepseek".equalsIgnoreCase(aiServiceType)) {
+            String apiKey = AiConfig.getProperty("deepseek.api.key", "");
+            String model = AiConfig.getProperty("deepseek.default.model", "");
+            return apiKey != null && !apiKey.isEmpty() && model != null && !model.isEmpty();
         }
 
         // If no valid AI service is configured, refactoring is not available
