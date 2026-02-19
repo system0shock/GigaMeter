@@ -52,4 +52,47 @@ class PlanCommandHandlerTest {
         assertTrue(response.contains("API TG"));
         assertTrue(response.contains("POST /auth/login"));
     }
+
+    @Test
+    void buildsPreviewWithCsvAndThinkTime() {
+        AiService aiService = mock(AiService.class);
+        when(aiService.generateResponse(anyList())).thenReturn("{\n" +
+                "\"thread_group\":{\"name\":\"API TG\",\"users\":5,\"ramp_up_seconds\":5,\"duration_seconds\":120},\n" +
+                "\"defaults\":{\"base_url\":\"https://api.example.com\",\"think_time_ms\":700,\"csv\":{\"file\":\"data/users.csv\",\"variables\":[\"username\",\"password\"]}},\n" +
+                "\"steps\":[{\"name\":\"Login\",\"method\":\"POST\",\"path\":\"/auth/login\",\"query\":{\"tenant\":\"demo\"},\"body\":{\"username\":\"${username}\"},\"think_time_ms\":500,\"headers\":{\"Content-Type\":\"application/json\"}}]\n" +
+                "}");
+
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+        String response = handler.processPlanCommand("@plan login flow");
+
+        assertTrue(response.contains("CSV Data Set: data/users.csv"));
+        assertTrue(response.contains("CSV variables: username,password"));
+        assertTrue(response.contains("Default think time (ms): 700"));
+        assertTrue(response.contains("Think time (ms): 500"));
+        assertTrue(response.contains("Query params: 1"));
+        assertTrue(response.contains("Body: yes"));
+    }
+
+    @Test
+    void buildsPreviewWithJsr223SamplerAndProcessors() {
+        AiService aiService = mock(AiService.class);
+        when(aiService.generateResponse(anyList())).thenReturn("{\n" +
+                "\"thread_group\":{\"name\":\"API TG\",\"users\":3,\"ramp_up_seconds\":3,\"duration_seconds\":30},\n" +
+                "\"steps\":[{\n" +
+                "\"name\":\"Generate vars\",\n" +
+                "\"sampler_type\":\"jsr223\",\n" +
+                "\"script_language\":\"groovy\",\n" +
+                "\"script\":\"vars.put(\\\"token\\\",\\\"abc\\\")\",\n" +
+                "\"pre_processors\":[{\"type\":\"jsr223\",\"name\":\"Prepare\",\"script_language\":\"groovy\",\"script\":\"vars.put(\\\"ts\\\",\\\"1\\\")\"}],\n" +
+                "\"post_processors\":[{\"type\":\"jsr223\",\"name\":\"Extract\",\"script_language\":\"groovy\",\"script\":\"vars.put(\\\"status\\\",\\\"ok\\\")\"}]\n" +
+                "}]\n" +
+                "}");
+
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+        String response = handler.processPlanCommand("@plan jsr223 flow");
+
+        assertTrue(response.contains("JSR223 groovy"));
+        assertTrue(response.contains("Pre-processors: 1"));
+        assertTrue(response.contains("Post-processors: 1"));
+    }
 }
