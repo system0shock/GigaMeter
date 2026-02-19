@@ -63,7 +63,7 @@ public class CodeCommandHandler {
     /**
      * Constructor.
      * 
-     * @param claudeService The Claude service to use for AI processing
+     * @param aiService The AI service to use for code processing
      */
     public CodeCommandHandler(AiService aiService) {
         this.aiService = aiService;
