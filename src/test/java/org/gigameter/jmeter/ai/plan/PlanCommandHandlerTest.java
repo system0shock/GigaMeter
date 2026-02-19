@@ -37,7 +37,7 @@ class PlanCommandHandlerTest {
 
         String response = handler.processPlanCommand("@plan analyze");
 
-        assertTrue(response.contains("cannot analyze") || response.contains("No Thread Group"));
+        assertTrue(response.contains("анализ плана выполнить нельзя") || response.contains("не найдено"));
     }
 
     @Test
