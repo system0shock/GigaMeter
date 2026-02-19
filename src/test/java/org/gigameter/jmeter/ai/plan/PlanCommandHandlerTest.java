@@ -31,6 +31,16 @@ class PlanCommandHandlerTest {
     }
 
     @Test
+    void returnsHintWhenAnalyzeCalledWithoutGui() {
+        AiService aiService = mock(AiService.class);
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+
+        String response = handler.processPlanCommand("@plan analyze");
+
+        assertTrue(response.contains("cannot analyze") || response.contains("No Thread Group"));
+    }
+
+    @Test
     void undoPlanApplyWithoutStoredOperation() {
         String response = PlanCommandHandler.undoLastAppliedPlan();
         assertTrue(response.contains("cannot rollback") || response.contains("Nothing"));
