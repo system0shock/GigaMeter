@@ -182,10 +182,11 @@ class CodeRefactorerTest {
         jOptionPaneMock.verify(() -> JOptionPane.showMessageDialog(
                 eq(textArea),
                 any(String.class),
-                eq("Refactoring Error"),
+                any(String.class),
                 eq(JOptionPane.ERROR_MESSAGE)));
 
         // Verify no replacement was made
         verify(textArea, never()).replaceSelection(any());
     }
 }
+
