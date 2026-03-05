@@ -511,7 +511,10 @@ public class PlanCommandHandler {
                 out.append("- ").append(String.join(", ", stats.entities)).append("\n\n");
             }
 
-            String aiInterpretation = tryBuildBusinessInterpretationWithAi(tgNode.getName(), users, rampUp, scheduler, duration, stats);
+            int totalSamplers = stats.httpSamplers + stats.jsr223Samplers + stats.otherSamplers;
+            String aiInterpretation = totalSamplers > 0
+                    ? tryBuildBusinessInterpretationWithAi(tgNode.getName(), users, rampUp, scheduler, duration, stats)
+                    : "";
             if (!aiInterpretation.isEmpty()) {
                 out.append("### Бизнес-интерпретация (AI)\n");
                 out.append(aiInterpretation).append("\n\n");
@@ -940,16 +943,16 @@ public class PlanCommandHandler {
                 "Если данных мало, явно укажи предположения.\n\n" +
                 "Данные анализа:\n" +
                 "- Thread Group: " + tgName + "\n" +
-                "- Users: " + users + "\n" +
+                "- Пользователи: " + users + "\n" +
                 "- Ramp-up: " + rampUp + " с\n" +
-                "- Scheduler: " + (scheduler ? "включен" : "выключен") + "\n" +
-                "- Duration: " + duration + " с\n" +
-                "- HTTP Samplers: " + stats.httpSamplers + "\n" +
-                "- JSR223 Samplers: " + stats.jsr223Samplers + "\n" +
-                "- Assertions: " + stats.assertions + "\n" +
-                "- Controllers: " + stats.controllers + "\n" +
-                "- Timers: " + stats.timers + "\n" +
-                "- Entities: " + (stats.entities.isEmpty() ? "нет явных" : String.join(", ", stats.entities)) + "\n\n" +
+                "- Планировщик: " + (scheduler ? "включен" : "выключен") + "\n" +
+                "- Длительность: " + duration + " с\n" +
+                "- HTTP Sampler: " + stats.httpSamplers + "\n" +
+                "- JSR223 Sampler: " + stats.jsr223Samplers + "\n" +
+                "- Assertion: " + stats.assertions + "\n" +
+                "- Контроллеры: " + stats.controllers + "\n" +
+                "- Таймеры: " + stats.timers + "\n" +
+                "- Сущности: " + (stats.entities.isEmpty() ? "нет явных" : String.join(", ", stats.entities)) + "\n\n" +
                 "Поток выполнения:\n" + flow;
     }
 

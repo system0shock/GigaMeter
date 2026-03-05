@@ -126,13 +126,12 @@ public class OptimizeRequestHandler {
 
             // Create a prompt for this specific element
             StringBuilder elementPrompt = new StringBuilder();
-            elementPrompt.append(
-                    "As a JMeter expert, analyze this JMeter element and provide specific optimization recommendations:\n\n");
-            elementPrompt.append("Element Type: ").append(elementType).append("\n");
-            elementPrompt.append("Element Name: ").append(elementName).append("\n\n");
+            elementPrompt.append("Проанализируй элемент JMeter и дай конкретные рекомендации по оптимизации:\n\n");
+            elementPrompt.append("Тип: ").append(elementType).append("\n");
+            elementPrompt.append("Имя: ").append(elementName).append("\n\n");
 
             // Add element properties
-            elementPrompt.append("Properties:\n");
+            elementPrompt.append("Свойства:\n");
             PropertyIterator propertyIterator = element.propertyIterator();
             while (propertyIterator.hasNext()) {
                 org.apache.jmeter.testelement.property.JMeterProperty property = propertyIterator.next();
@@ -146,49 +145,48 @@ public class OptimizeRequestHandler {
             }
 
             // Add specific guidance based on element type
-            elementPrompt.append("\nProvide optimization recommendations for this ").append(elementType)
-                    .append(" with focus on:\n");
+            elementPrompt.append("\nДай рекомендации для ").append(elementType).append(", акцент на:\n");
 
             if (elementType.contains("HTTPSampler")) {
-                elementPrompt.append("- Connection and timeout settings\n")
-                        .append("- Use of connection pooling\n")
-                        .append("- Proper header management\n")
-                        .append("- Efficient parameter handling\n")
-                        .append("- Proper encoding settings\n")
-                        .append("- Redirect and follow handling\n");
+                elementPrompt.append("- Настройки соединения и таймаутов\n")
+                        .append("- Использование пула соединений\n")
+                        .append("- Управление заголовками\n")
+                        .append("- Эффективная передача параметров\n")
+                        .append("- Настройки кодировки\n")
+                        .append("- Обработка редиректов\n");
             } else if (elementType.contains("ThreadGroup")) {
-                elementPrompt.append("- Thread count and ramp-up settings\n")
-                        .append("- Loop count configuration\n")
-                        .append("- Scheduler settings\n")
-                        .append("- Thread startup delay\n");
+                elementPrompt.append("- Количество потоков и ramp-up\n")
+                        .append("- Настройка loop count\n")
+                        .append("- Параметры планировщика\n")
+                        .append("- Задержка старта потоков\n");
             } else if (elementType.contains("Timer")) {
-                elementPrompt.append("- Appropriate delay values\n")
-                        .append("- Impact on test throughput\n")
-                        .append("- Realistic user behavior simulation\n");
+                elementPrompt.append("- Адекватные значения задержки\n")
+                        .append("- Влияние на пропускную способность теста\n")
+                        .append("- Реалистичность имитации поведения пользователей\n");
             } else if (elementType.contains("Assertion")) {
-                elementPrompt.append("- Assertion scope and fields\n")
-                        .append("- Pattern matching efficiency\n")
-                        .append("- Impact on test performance\n");
+                elementPrompt.append("- Область применения и поля assertion\n")
+                        .append("- Эффективность сопоставления паттернов\n")
+                        .append("- Влияние на производительность теста\n");
             } else if (elementType.contains("Extractor") || elementType.contains("PostProcessor")) {
-                elementPrompt.append("- Extraction efficiency\n")
-                        .append("- Regular expression optimization\n")
-                        .append("- Variable naming conventions\n")
-                        .append("- Error handling\n");
+                elementPrompt.append("- Эффективность извлечения данных\n")
+                        .append("- Оптимизация регулярных выражений\n")
+                        .append("- Соглашения по именованию переменных\n")
+                        .append("- Обработка ошибок\n");
             } else if (elementType.contains("ConfigElement") || elementType.contains("Config")) {
-                elementPrompt.append("- Proper configuration for test requirements\n")
-                        .append("- Reusability across test plan\n")
-                        .append("- Performance impact\n");
+                elementPrompt.append("- Корректная конфигурация под требования теста\n")
+                        .append("- Возможность переиспользования в тест-плане\n")
+                        .append("- Влияние на производительность\n");
             } else if (elementType.contains("Controller")) {
-                elementPrompt.append("- Logic flow efficiency\n")
-                        .append("- Nesting level considerations\n")
-                        .append("- Impact on test readability and maintenance\n");
+                elementPrompt.append("- Эффективность логики выполнения\n")
+                        .append("- Глубина вложенности\n")
+                        .append("- Читаемость и сопровождаемость теста\n");
             } else {
-                elementPrompt.append("- Performance impact\n")
-                        .append("- Configuration best practices\n")
-                        .append("- Integration with other elements\n");
+                elementPrompt.append("- Влияние на производительность\n")
+                        .append("- Лучшие практики конфигурации\n")
+                        .append("- Взаимодействие с другими элементами\n");
             }
 
-            elementPrompt.append("\nProvide 3-5 specific, actionable recommendations to optimize this element.");
+            elementPrompt.append("\nДай 3–5 конкретных практических рекомендаций.");
 
             log.info("Sending selected element to AI for analysis");
 
@@ -197,8 +195,8 @@ public class OptimizeRequestHandler {
 
             // Format the response
             StringBuilder report = new StringBuilder();
-            report.append("# Optimization Recommendations for ").append(elementName).append(" (").append(elementType)
-                    .append(")\n\n");
+            report.append("# Рекомендации по оптимизации: ").append(elementName)
+                    .append(" (").append(elementType).append(")\n\n");
             report.append(elementRecommendations);
 
             log.info("Completed optimization analysis for selected element");

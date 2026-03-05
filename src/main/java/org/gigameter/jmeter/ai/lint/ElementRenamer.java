@@ -6,17 +6,21 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.gigameter.jmeter.ai.service.AiService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
+
 
 /**
  * A utility class for renaming JMeter test plan elements using AI suggestions.
@@ -24,6 +28,7 @@ import java.util.stream.Collectors;
  */
 public class ElementRenamer {
     private static final Logger log = LoggerFactory.getLogger(ElementRenamer.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private final AiService aiService;
     private static final String DISABLED_PREFIX = "Disabled_";
     
@@ -260,76 +265,106 @@ public class ElementRenamer {
      */
     private String getAiSuggestions(List<ElementInfo> elementsToRename, String command) {
         StringBuilder prompt = new StringBuilder();
-        prompt.append("Help the user to rename the elements in the test plan. Here are the elements details. Give me meaningful names for the elements.\n");
-        prompt.append("e.g. HTTP_PostLogin, HTTP_Request_To_Authenticate_Users_And_Get_Token, TG_GenerateOrders\n");
-        
+        prompt.append("Переименуй элементы JMeter тест-плана. Придумай осмысленные имена на основе типа и свойств каждого элемента.\n");
+        prompt.append("Примеры имён: HTTP_PostLogin, HTTP_10_GetToken, TG_GenerateOrders\n");
+
         // Add user's specific naming style instructions if provided
         if (command != null && !command.equalsIgnoreCase("rename")) {
-            prompt.append("User has requested the following naming style: " + command + "\n");
-            
+            prompt.append("Стиль именования по запросу пользователя: ").append(command).append("\n");
+
             // Check if the user has specific instructions about numbering or beginning format
-            boolean hasNumberingInstructions = command.toLowerCase().contains("number") || 
-                                             command.toLowerCase().contains("sequenc") || 
-                                             command.toLowerCase().contains("order");
-                                             
-            boolean hasBeginningInstructions = command.toLowerCase().contains("beginning") || 
-                                             command.toLowerCase().contains("start") || 
-                                             command.toLowerCase().contains("prefix");
-            
+            boolean hasNumberingInstructions = command.toLowerCase().contains("number") ||
+                                             command.toLowerCase().contains("sequenc") ||
+                                             command.toLowerCase().contains("order") ||
+                                             command.toLowerCase().contains("номер") ||
+                                             command.toLowerCase().contains("последов");
+
+            boolean hasBeginningInstructions = command.toLowerCase().contains("beginning") ||
+                                             command.toLowerCase().contains("start") ||
+                                             command.toLowerCase().contains("prefix") ||
+                                             command.toLowerCase().contains("начал") ||
+                                             command.toLowerCase().contains("префикс");
+
             // Check for the specific combined case of camel case with numbers at the beginning
             boolean isCamelCase = command.toLowerCase().contains("camel case") || command.toLowerCase().contains("camelcase");
-            boolean isNumbersAtBeginning = command.toLowerCase().contains("add the numbers in the beginning") || 
-                                         command.toLowerCase().contains("numbers in the beginning") || 
-                                         command.toLowerCase().contains("numbers at the beginning");
-            
+            boolean isNumbersAtBeginning = command.toLowerCase().contains("add the numbers in the beginning") ||
+                                         command.toLowerCase().contains("numbers in the beginning") ||
+                                         command.toLowerCase().contains("numbers at the beginning") ||
+                                         command.toLowerCase().contains("числа в начал");
+
             if (isCamelCase && isNumbersAtBeginning) {
-                prompt.append("\nIMPORTANT: The user wants camelCase with numbers at the BEGINNING of each name. " +
-                              "For example: '10httpLogin', '20getUsers', '30verifyOrder'. " +
-                              "Do NOT use underscores or any other format. The first part should be the number, " +
-                              "followed immediately by the camelCase name (first word lowercase, subsequent words capitalized).\n");
+                prompt.append("\nВАЖНО: используй camelCase с числом в НАЧАЛЕ имени. " +
+                              "Пример: '10httpLogin', '20getUsers', '30verifyOrder'. " +
+                              "Без подчёркиваний. Число — первым, затем camelCase (первое слово строчное, остальные — с заглавной).\n");
+            } else if (isNumbersAtBeginning) {
+                prompt.append("\nВАЖНО: числа должны быть в НАЧАЛЕ имени. Пример: вместо 'httpLogin' — '10HttpLogin', '20HttpGetUsers'.\n");
+            } else if (!hasNumberingInstructions && !hasBeginningInstructions) {
+                prompt.append("\nПо возможности добавляй порядковые номера: HTTP_10_Login, HTTP_20_GetToken, TG_10_GenerateOrders.\n");
             }
-            // Special case for "add the numbers in the beginning" only
-            else if (isNumbersAtBeginning) {
-                prompt.append("\nIMPORTANT: The user wants numbers at the BEGINNING of each name. For example, instead of 'httpLogin' use '10HttpLogin', '20HttpGetUsers', etc.\n");
-            } 
-            // Only add the default sequencing suggestion if the user hasn't specified numbering or beginning preferences
-            else if (!hasNumberingInstructions && !hasBeginningInstructions) {
-                prompt.append("\nIf possible, sequentially rename the elements in the test plan. e.g. HTTP_10_Login, HTTP_20_Request_To_Authenticate_Users_And_Get_Token, TG_10_GenerateOrders, TG_20_Verify_Orders\n");
-            }
-            
-            // Special case for camel case (only if not already handled in the combined case)
+
             if (isCamelCase && !isNumbersAtBeginning) {
-                prompt.append("\nFor camelCase, the first letter should be lowercase, and the first letter of each subsequent word should be uppercase. For example: 'httpRequest', 'getUsers', 'verifyLogin'.\n");
+                prompt.append("\nCamelCase: первая буква строчная, каждое следующее слово — с заглавной. Пример: 'httpRequest', 'getUsers', 'verifyLogin'.\n");
             }
         } else {
-            prompt.append("Use the snake_case by default, unless the user specifies otherwise.\n");
-            prompt.append("\nIf possible, sequentially rename the elements in the test plan. e.g. HTTP_10_Login, HTTP_20_Request_To_Authenticate_Users_And_Get_Token, TG_10_GenerateOrders, TG_20_Verify_Orders\n");
+            prompt.append("По умолчанию используй snake_case.\n");
+            prompt.append("\nПо возможности добавляй порядковые номера: HTTP_10_Login, HTTP_20_GetToken, TG_10_GenerateOrders.\n");
         }
-        
-        prompt.append("\n");
-        prompt.append("Elements to rename:\n\n");
-        
+
+        prompt.append("\nСписок элементов:\n\n");
+
         AtomicInteger counter = new AtomicInteger(1);
         elementsToRename.forEach(info -> {
-            prompt.append("Element ").append(counter.getAndIncrement()).append(":\n");
-            prompt.append("Type: ").append(info.type).append("\n");
-            prompt.append("Current Name: ").append(info.name).append("\n");
-            prompt.append("Is Disabled: ").append(info.isDisabled).append("\n");
+            prompt.append("Элемент ").append(counter.getAndIncrement()).append(":\n");
+            prompt.append("Тип: ").append(info.type).append("\n");
+            prompt.append("Текущее имя: ").append(info.name).append("\n");
             if (!info.properties.isEmpty()) {
-                prompt.append("Properties:\n").append(info.properties).append("\n");
+                prompt.append("Свойства:\n").append(info.properties).append("\n");
             }
             prompt.append("\n");
         });
-        
-        prompt.append("For each element, provide a new name in the format 'Element X: NEW_NAME'. Make sure the names are meaningful and reflect the purpose of the element.\n");
-        prompt.append("DO NOT add any 'Disabled_' prefix to the names. The system will handle disabled elements automatically.\n");
-        
+
+        prompt.append("Верни ТОЛЬКО JSON-массив без пояснений и без markdown-блоков. Формат:\n");
+        prompt.append("[{\"index\":1,\"name\":\"NewName1\"},{\"index\":2,\"name\":\"NewName2\"},...]\n");
+        prompt.append("Для каждого элемента укажи тот же номер index, что в задании. Не пропускай элементы.\n");
+        prompt.append("НЕ добавляй префикс 'Disabled_' — система обрабатывает отключённые элементы автоматически.\n");
+
         try {
             return aiService.generateResponse(java.util.Collections.singletonList(prompt.toString()));
         } catch (Exception e) {
             log.error("Error getting AI suggestions", e);
             return null;
         }
+    }
+
+    private Map<Integer, String> parseSuggestionsJson(String response) {
+        Map<Integer, String> result = new HashMap<>();
+        if (response == null || response.trim().isEmpty()) {
+            return result;
+        }
+        try {
+            String normalized = response.trim();
+            if (normalized.startsWith("```")) {
+                normalized = normalized.replaceAll("^```[a-zA-Z]*\\s*", "").replaceAll("\\s*```$", "");
+            }
+            int start = normalized.indexOf('[');
+            int end = normalized.lastIndexOf(']');
+            if (start < 0 || end <= start) {
+                return result;
+            }
+            JsonNode arr = OBJECT_MAPPER.readTree(normalized.substring(start, end + 1));
+            if (arr.isArray()) {
+                for (JsonNode node : arr) {
+                    int index = node.path("index").asInt(-1);
+                    String name = node.path("name").asText("").trim();
+                    if (index > 0 && !name.isEmpty()) {
+                        result.put(index, name);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse rename suggestions JSON: {}", e.getMessage());
+        }
+        return result;
     }
     
     /**
@@ -341,22 +376,19 @@ public class ElementRenamer {
      */
     private int applyRenameSuggestions(List<ElementInfo> elementsToRename, String suggestions) {
         int renamedCount = 0;
-        
+
         // Clear previous rename operation backup
         lastRenameOperation.clear();
-        
-        // Parse the AI response to extract suggested names
-        List<String> suggestionLines = suggestions.lines()
-                .filter(line -> line.startsWith("Element ") && line.contains(":"))
-                .collect(Collectors.toList());
-        
-        log.info("Found " + suggestionLines.size() + " suggestion lines from AI");
-        
+
+        // Parse the AI response as JSON: [{index: N, name: "..."}]
+        Map<Integer, String> nameByIndex = parseSuggestionsJson(suggestions);
+        log.info("Parsed {} rename suggestions from AI", nameByIndex.size());
+
         // Get the currently selected nodes for special handling
         GuiPackage guiPackage = GuiPackage.getInstance();
         JMeterTreeNode currentNode = guiPackage != null ? guiPackage.getTreeListener().getCurrentNode() : null;
         JMeterTreeNode[] selectedNodes = guiPackage != null ? guiPackage.getTreeListener().getSelectedNodes() : null;
-        
+
         // Create a set of selected nodes for faster lookup
         Set<JMeterTreeNode> selectedNodesSet = new HashSet<>();
         if (selectedNodes != null) {
@@ -364,100 +396,68 @@ public class ElementRenamer {
                 selectedNodesSet.add(node);
             }
         }
-        
-        // Apply suggestions if available
-        if (!suggestionLines.isEmpty()) {
-            // Log the number of elements and suggestions to help with debugging
-            log.info("Processing " + elementsToRename.size() + " elements with " + suggestionLines.size() + " suggestions");
-            
-            // Make sure we're not skipping any elements due to index mismatch
+
+        if (!nameByIndex.isEmpty()) {
+            log.info("Processing {} elements with {} suggestions", elementsToRename.size(), nameByIndex.size());
+
             for (int i = 0; i < elementsToRename.size(); i++) {
                 ElementInfo info = elementsToRename.get(i);
-                String newName = null;
-                
-                // Try to get the corresponding suggestion
-                if (i < suggestionLines.size()) {
-                    String line = suggestionLines.get(i);
-                    String[] parts = line.split(":", 2);
-                    if (parts.length == 2) {
-                        newName = parts[1].trim();
-                        
-                        // Add "Disabled_" prefix if the element is disabled
-                        // First, remove any existing "Disabled_" prefix that might have been added by the AI
-                        if (newName.startsWith(DISABLED_PREFIX)) {
-                            newName = newName.substring(DISABLED_PREFIX.length());
-                        }
-                        
-                        // Now add the prefix if the element is actually disabled
-                        if (info.isDisabled) {
-                            newName = DISABLED_PREFIX + newName;
-                        }
-                        
-                        // Log the rename operation for debugging
-                        log.info("Renaming element " + (i+1) + ": " + info.name + " -> " + newName);
-                        
-                        // Backup the original name before changing it
-                        lastRenameOperation.add(new NameBackup(info.node, info.element, info.name));
-                        
-                        // Apply the new name
-                        info.node.setName(newName);
-                        info.element.setName(newName);
-                        info.element.setProperty(TestElement.NAME, newName);
-                        
-                        // Check if this is the currently selected node
-                        boolean isCurrentNode = (currentNode != null && currentNode.equals(info.node));
-                        boolean isSelectedNode = selectedNodesSet.contains(info.node);
-                        
-                        // Update the GUI component if this is the currently selected node
-                        if (isCurrentNode && guiPackage != null) {
-                            // Get the current GUI component and update it
-                            JMeterGUIComponent comp = guiPackage.getCurrentGui();
-                            if (comp != null) {
-                                comp.configure(info.element);
-                                log.info("Configured current GUI component for element: " + newName);
-                            }
-                        }
-                        
-                        // For all nodes (including selected ones), ensure the tree model is updated
-                        if (guiPackage != null) {
-                            guiPackage.getTreeModel().nodeChanged(info.node);
-                            log.info("Notified tree model of node change for element: " + newName);
-                            
-                            // For selected nodes, apply additional update to ensure visibility
-                            if (isSelectedNode) {
-                                // Force a more thorough update for selected nodes
-                                guiPackage.updateCurrentNode();
-                                log.info("Updated current node for selected element: " + newName);
-                            }
-                        }
-                        
-                        renamedCount++;
-                    }
-                } else {
-                    // We have more elements than suggestions
-                    log.warn("No suggestion found for element " + (i+1) + ": " + info.name);
+                // indices in prompt start at 1
+                String newName = nameByIndex.get(i + 1);
+
+                if (newName == null || newName.isEmpty()) {
+                    log.warn("No suggestion for element {}: {}", i + 1, info.name);
+                    continue;
                 }
+
+                // Strip any AI-added Disabled_ prefix, then re-add based on actual state
+                if (newName.startsWith(DISABLED_PREFIX)) {
+                    newName = newName.substring(DISABLED_PREFIX.length());
+                }
+                if (info.isDisabled) {
+                    newName = DISABLED_PREFIX + newName;
+                }
+
+                log.info("Renaming element {}: {} -> {}", i + 1, info.name, newName);
+
+                // Backup the original name before changing it
+                lastRenameOperation.add(new NameBackup(info.node, info.element, info.name));
+
+                // Apply the new name
+                info.node.setName(newName);
+                info.element.setName(newName);
+                info.element.setProperty(TestElement.NAME, newName);
+
+                boolean isCurrentNode = (currentNode != null && currentNode.equals(info.node));
+                boolean isSelectedNode = selectedNodesSet.contains(info.node);
+
+                if (isCurrentNode && guiPackage != null) {
+                    JMeterGUIComponent comp = guiPackage.getCurrentGui();
+                    if (comp != null) {
+                        comp.configure(info.element);
+                    }
+                }
+
+                if (guiPackage != null) {
+                    guiPackage.getTreeModel().nodeChanged(info.node);
+                    if (isSelectedNode) {
+                        guiPackage.updateCurrentNode();
+                    }
+                }
+
+                renamedCount++;
             }
-            
-            // After all renames are applied, force a final GUI refresh
+
             if (guiPackage != null) {
-                // Update the current GUI component
                 JMeterGUIComponent comp = guiPackage.getCurrentGui();
                 if (comp != null && currentNode != null) {
                     comp.configure(currentNode.getTestElement());
-                    log.info("Final GUI component update for current node");
                 }
-                
-                // Ensure the tree is properly updated
                 guiPackage.updateCurrentNode();
-                log.info("Final update of current node");
-                
-                // Repaint the main frame to ensure all visual changes are applied
                 guiPackage.getMainFrame().repaint();
-                log.info("Final repaint of main frame");
             }
         }
-        
+
         return renamedCount;
     }
     
@@ -528,7 +528,7 @@ public class ElementRenamer {
         }
         
         // Clear the backup after undoing
-        lastRenameOperation = new ArrayList<>();
+        lastRenameOperation.clear();
         
         // After all undos are applied, force a final GUI refresh
         if (guiPackage != null) {
@@ -621,7 +621,7 @@ public class ElementRenamer {
         }
         
         // Clear the undone backup after redoing
-        lastUndoneOperation = new ArrayList<>();
+        lastUndoneOperation.clear();
         
         // After all redos are applied, force a final GUI refresh
         if (guiPackage != null) {

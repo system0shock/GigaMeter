@@ -17,6 +17,7 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
@@ -328,7 +329,7 @@ public class GigaChatService implements AiService {
         if (value == null) {
             return "";
         }
-        return value.replace(" ", "%20");
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
     private String trimTrailingSlash(String value) {
