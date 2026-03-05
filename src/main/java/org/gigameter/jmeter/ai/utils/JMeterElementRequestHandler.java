@@ -610,18 +610,6 @@ public class JMeterElementRequestHandler {
     }
 
     /**
-     * Processes a user message to determine if it's requesting to optimize the test
-     * plan.
-     * 
-     * @param userMessage The user's message
-     * @return A response message, or null if the message is not a request to
-     *         optimize the test plan
-     */
-    public static String processOptimizeTestPlanRequest(String userMessage) {
-        return OptimizeRequestHandler.processOptimizeTestPlanRequest(userMessage);
-    }
-
-    /**
      * Extracts the element type from a given instruction.
      * 
      * @param instruction The instruction to extract the element type from
