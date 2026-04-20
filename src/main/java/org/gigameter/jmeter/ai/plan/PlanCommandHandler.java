@@ -1,7 +1,6 @@
 package org.gigameter.jmeter.ai.plan;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
@@ -32,235 +31,66 @@ import java.util.Set;
  */
 public class PlanCommandHandler {
     private static final Logger log = LoggerFactory.getLogger(PlanCommandHandler.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String GENERATE_FAILURE_MESSAGE =
+            "Не удалось сгенерировать черновик плана. Возможные причины:\n" +
+            "- GigaChat вернул невалидный JSON — попробуйте ещё раз\n" +
+            "- Сценарий слишком абстрактный — уточните API-шаги, нагрузку и ожидаемые статусы\n" +
+            "- Проблема с подключением к GigaChat\n\n" +
+            "Пример корректного сценария: `@plan REST API интернет-магазина: авторизация POST /api/auth, " +
+            "получение каталога GET /api/products, добавление в корзину POST /api/cart. " +
+            "50 пользователей, 60 секунд.`";
 
     private final AiService aiService;
+    private final PlanCommandParser parser;
+    private final PlanDraftGenerator draftGenerator;
+    private final PlanDraftValidator draftValidator;
+    private final PlanPreviewRenderer previewRenderer;
 
     public PlanCommandHandler(AiService aiService) {
+        this(aiService,
+                new PlanCommandParser(),
+                new PlanDraftGenerator(aiService),
+                new PlanDraftValidator(),
+                new PlanPreviewRenderer());
+    }
+
+    PlanCommandHandler(AiService aiService,
+                       PlanCommandParser parser,
+                       PlanDraftGenerator draftGenerator,
+                       PlanDraftValidator draftValidator,
+                       PlanPreviewRenderer previewRenderer) {
         this.aiService = aiService;
+        this.parser = parser;
+        this.draftGenerator = draftGenerator;
+        this.draftValidator = draftValidator;
+        this.previewRenderer = previewRenderer;
     }
 
     public String processPlanCommand(String message) {
-        if (message == null) {
+        PlanCommandRequest request = parser.parse(message);
+        if (request.getMode() == PlanCommandRequest.Mode.INVALID) {
             return usageMessage();
         }
-
-        String scenario = message.trim().replaceFirst("^@plan\\s*", "").trim();
-        if (scenario.isEmpty()) {
-            return usageMessage();
-        }
-        if ("apply".equalsIgnoreCase(scenario)) {
+        if (request.getMode() == PlanCommandRequest.Mode.APPLY) {
             return applyLatestPlan();
         }
-        if ("analyze".equalsIgnoreCase(scenario)) {
+        if (request.getMode() == PlanCommandRequest.Mode.ANALYZE) {
             return analyzeCurrentPlan();
         }
 
         try {
-            String prompt = buildPrompt(scenario);
-            String aiResponse = aiService.generateResponse(Collections.singletonList(prompt));
-            JsonNode planJson = extractAndParseJson(aiResponse);
-            validate(planJson);
-            PlanDraftStore.save(planJson, scenario);
-            return buildPreview(planJson, scenario);
+            JsonNode planJson = draftGenerator.generate(request.getScenario());
+            draftValidator.validate(planJson);
+            PlanDraftStore.save(planJson, request.getScenario());
+            return previewRenderer.render(planJson, request.getScenario());
         } catch (Exception e) {
             log.error("Failed to build plan preview", e);
-            return "Failed to generate structured plan preview. " +
-                    "Please provide a more explicit backend scenario with API steps, load profile, and expected status codes.";
+            return GENERATE_FAILURE_MESSAGE;
         }
     }
 
     private String usageMessage() {
-        return "Usage: @plan <backend scenario> OR @plan apply OR @plan analyze. Example: @plan Login, get token, list products, add to cart, checkout. 100 users, ramp-up 60s, duration 10m.";
-    }
-
-    private String buildPrompt(String scenario) {
-        return "You are generating a JMeter backend API test plan draft.\n" +
-                "Return ONLY valid JSON. Do not add explanations.\n" +
-                "Schema:\n" +
-                "{\n" +
-                "  \"thread_group\": {\n" +
-                "    \"name\": \"string\",\n" +
-                "    \"users\": number,\n" +
-                "    \"ramp_up_seconds\": number,\n" +
-                "    \"duration_seconds\": number\n" +
-                "  },\n" +
-                "  \"defaults\": {\n" +
-                "    \"base_url\": \"string\",\n" +
-                "    \"think_time_ms\": number,\n" +
-                "    \"csv\": {\n" +
-                "      \"file\": \"data/users.csv\",\n" +
-                "      \"variables\": [\"username\", \"password\"],\n" +
-                "      \"delimiter\": \",\",\n" +
-                "      \"recycle\": true,\n" +
-                "      \"stop_thread_on_eof\": false,\n" +
-                "      \"ignore_first_line\": true\n" +
-                "    }\n" +
-                "  },\n" +
-                "  \"steps\": [\n" +
-                "    {\n" +
-                "      \"name\": \"string\",\n" +
-                "      \"sampler_type\": \"http|jsr223\",\n" +
-                "      \"method\": \"GET|POST|PUT|PATCH|DELETE\",\n" +
-                "      \"path\": \"/path\",\n" +
-                "      \"headers\": {\"Header-Name\": \"value\"},\n" +
-                "      \"query\": {\"key\": \"value\"},\n" +
-                "      \"body\": {\"json\": \"object or string\"},\n" +
-                "      \"script_language\": \"groovy\",\n" +
-                "      \"script\": \"vars.put(\\\"token\\\", \\\"abc\\\")\",\n" +
-                "      \"pre_processors\": [{\"type\":\"jsr223\",\"name\":\"Prepare Vars\",\"script_language\":\"groovy\",\"script\":\"vars.put(\\\"ts\\\", String.valueOf(System.currentTimeMillis()))\"}],\n" +
-                "      \"post_processors\": [{\"type\":\"jsr223\",\"name\":\"Extract Vars\",\"script_language\":\"groovy\",\"script\":\"vars.put(\\\"status\\\", prev.getResponseCode())\"}],\n" +
-                "      \"think_time_ms\": number,\n" +
-                "      \"extract\": {\"var\": \"token\", \"json_path\": \"$.token\"},\n" +
-                "      \"assert\": {\"status_code\": 200}\n" +
-                "    }\n" +
-                "  ]\n" +
-                "}\n\n" +
-                "Scenario:\n" + scenario;
-    }
-
-    private JsonNode extractAndParseJson(String response) throws Exception {
-        if (response == null || response.trim().isEmpty()) {
-            throw new IllegalStateException("Empty AI response");
-        }
-
-        String normalized = response.trim();
-        if (normalized.startsWith("```")) {
-            normalized = normalized.replaceAll("^```[a-zA-Z]*\\s*", "");
-            normalized = normalized.replaceAll("\\s*```$", "");
-        }
-
-        int start = normalized.indexOf('{');
-        int end = normalized.lastIndexOf('}');
-        if (start < 0 || end <= start) {
-            throw new IllegalStateException("No JSON object found in AI response");
-        }
-
-        String json = normalized.substring(start, end + 1);
-        return OBJECT_MAPPER.readTree(json);
-    }
-
-    private void validate(JsonNode root) {
-        if (root == null || !root.isObject()) {
-            throw new IllegalStateException("Root is not a JSON object");
-        }
-
-        JsonNode threadGroup = root.path("thread_group");
-        if (!threadGroup.isObject()) {
-            throw new IllegalStateException("thread_group is missing");
-        }
-
-        if (!threadGroup.path("users").isNumber()) {
-            throw new IllegalStateException("thread_group.users must be numeric");
-        }
-
-        JsonNode steps = root.path("steps");
-        if (!steps.isArray() || steps.size() == 0) {
-            throw new IllegalStateException("steps must be non-empty array");
-        }
-    }
-
-    private String buildPreview(JsonNode root, String scenario) {
-        StringBuilder out = new StringBuilder();
-        out.append("# AI Plan Preview (Draft)\n\n");
-        out.append("`Preview only` - no changes were applied to the test plan.\n\n");
-        out.append("## Scenario\n");
-        out.append(scenario).append("\n\n");
-
-        JsonNode tg = root.path("thread_group");
-        out.append("## Thread Group\n");
-        out.append("- Name: ").append(textOrDefault(tg.path("name"), "API Users")).append("\n");
-        out.append("- Users: ").append(numberOrDefault(tg.path("users"), 1)).append("\n");
-        out.append("- Ramp-up (s): ").append(numberOrDefault(tg.path("ramp_up_seconds"), 1)).append("\n");
-        out.append("- Duration (s): ").append(numberOrDefault(tg.path("duration_seconds"), 60)).append("\n\n");
-
-        JsonNode defaults = root.path("defaults");
-        if (defaults.isObject() && defaults.has("base_url")) {
-            out.append("## Defaults\n");
-            out.append("- Base URL: ").append(textOrDefault(defaults.path("base_url"), "")).append("\n\n");
-        }
-        if (defaults.isObject() && defaults.has("think_time_ms")) {
-            out.append("- Default think time (ms): ")
-                    .append(numberOrDefault(defaults.path("think_time_ms"), 0)).append("\n");
-        }
-        JsonNode csv = defaults.path("csv");
-        if (csv.isObject() && csv.has("file")) {
-            out.append("- CSV Data Set: ").append(textOrDefault(csv.path("file"), "")).append("\n");
-            if (csv.has("variables")) {
-                out.append("  - CSV variables: ").append(joinCsvVariables(csv.path("variables"))).append("\n");
-            }
-        }
-        if (defaults.isObject()) {
-            out.append("\n");
-        }
-
-        out.append("## Steps\n");
-        JsonNode steps = root.path("steps");
-        for (int i = 0; i < steps.size(); i++) {
-            JsonNode step = steps.get(i);
-            String name = textOrDefault(step.path("name"), "Step " + (i + 1));
-            String samplerType = textOrDefault(step.path("sampler_type"), "http").toLowerCase();
-            String method = textOrDefault(step.path("method"), "GET");
-            String path = textOrDefault(step.path("path"), "/");
-            if ("jsr223".equals(samplerType)) {
-                out.append(i + 1).append(". ").append(name).append(" - JSR223 ")
-                        .append(textOrDefault(step.path("script_language"), "groovy")).append("\n");
-            } else {
-                out.append(i + 1).append(". ").append(name).append(" - ").append(method).append(" ").append(path).append("\n");
-            }
-
-            JsonNode assertion = step.path("assert");
-            if (assertion.isObject() && assertion.has("status_code")) {
-                out.append("   - Assert status: ").append(numberOrDefault(assertion.path("status_code"), 200)).append("\n");
-            }
-
-            JsonNode extract = step.path("extract");
-            if (extract.isObject() && extract.has("var") && extract.has("json_path")) {
-                out.append("   - Extract: ").append(textOrDefault(extract.path("var"), "var"))
-                        .append(" <= ").append(textOrDefault(extract.path("json_path"), "$")).append("\n");
-            }
-
-            JsonNode headers = step.path("headers");
-            if (headers.isObject()) {
-                int headerCount = 0;
-                Iterator<Map.Entry<String, JsonNode>> it = headers.fields();
-                while (it.hasNext()) {
-                    it.next();
-                    headerCount++;
-                }
-                if (headerCount > 0) {
-                    out.append("   - Headers: ").append(headerCount).append("\n");
-                }
-            }
-
-            JsonNode query = step.path("query");
-            if (query.isObject() && query.size() > 0) {
-                out.append("   - Query params: ").append(query.size()).append("\n");
-            }
-
-            JsonNode body = step.path("body");
-            if (!body.isMissingNode() && !body.isNull()) {
-                out.append("   - Body: yes\n");
-            }
-
-            int thinkTime = numberOrDefault(step.path("think_time_ms"), 0);
-            if (thinkTime > 0) {
-                out.append("   - Think time (ms): ").append(thinkTime).append("\n");
-            }
-
-            JsonNode preProcessors = step.path("pre_processors");
-            if (preProcessors.isArray() && preProcessors.size() > 0) {
-                out.append("   - Pre-processors: ").append(preProcessors.size()).append("\n");
-            }
-            JsonNode postProcessors = step.path("post_processors");
-            if (postProcessors.isArray() && postProcessors.size() > 0) {
-                out.append("   - Post-processors: ").append(postProcessors.size()).append("\n");
-            }
-        }
-
-        out.append("\n## Next Step\n");
-        out.append("If preview looks good, run `@plan apply` to build this structure in JMeter.");
-        return out.toString();
+        return PlanCommandParser.USAGE_MESSAGE;
     }
 
     private String textOrDefault(JsonNode node, String fallback) {
@@ -933,11 +763,10 @@ public class PlanCommandHandler {
         }
 
         return "Ты анализируешь JMeter тест-план.\n" +
-                "Выведи только русский текст, без markdown-кода и без английских фраз.\n" +
-                "Дай краткую и полезную интерпретацию (4-8 предложений).\n" +
-                "Постарайся понять бизнес-функционал скрипта: какие бизнес-процессы и сущности он моделирует, " +
-                "какие риски проверяет, где возможны пробелы покрытия.\n" +
-                "Если данных мало, явно укажи предположения.\n\n" +
+                "Ответ только на русском языке, 4-8 предложений.\n" +
+                "Интерпретируй бизнес-функционал: какие процессы и сущности моделируются, " +
+                "какие риски проверяются, где возможны пробелы покрытия.\n" +
+                "Если данных мало — явно укажи предположения.\n\n" +
                 "Данные анализа:\n" +
                 "- Thread Group: " + tgName + "\n" +
                 "- Users: " + users + "\n" +

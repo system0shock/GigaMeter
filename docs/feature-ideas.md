@@ -40,6 +40,11 @@
    - Mask secrets/tokens/PII before provider calls.
    - Add strict private mode with configurable redaction rules.
 
+10. **Tool use + внешние источники данных (Confluence, Jira)**
+   - Подключить function calling GigaChat для подтягивания контекста из Confluence/Jira.
+   - `@plan` сможет генерировать план по реальным бизнес-требованиям из Confluence.
+   - Детали: [`docs/concept-tool-use-external-sources.md`](concept-tool-use-external-sources.md)
+
 ## Engineering Improvements (enablers)
 
 10. **Architecture and quality improvements**
