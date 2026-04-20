@@ -756,25 +756,23 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 if (elementInfo == null) {
                     return "В плане тестирования не выбран элемент. Выберите элемент и повторите запрос.";
                 }
-                String question = extractThisQuery(message);
-                if (question.isEmpty()) {
-                    return elementInfo;
-                }
 
                 AiService serviceToUse = getServiceForSelectedModel();
                 if (serviceToUse == null) {
                     return elementInfo;
                 }
 
+                String question = extractThisQuery(message);
                 try {
                     List<String> prompt = new ArrayList<>();
-                    prompt.add(buildThisQuestionPrompt(question, elementInfo));
+                    prompt.add(question.isEmpty()
+                            ? buildThisSummaryPrompt(elementInfo)
+                            : buildThisQuestionPrompt(question, elementInfo));
                     String aiResponse = serviceToUse.generateResponse(prompt);
                     return (aiResponse == null || aiResponse.trim().isEmpty()) ? elementInfo : aiResponse;
                 } catch (Throwable e) {
-                    log.warn("Failed to process @this question with AI, fallback to static info", e);
-                    String fallback = getSelectedElementContextSummary();
-                    return (fallback == null || fallback.trim().isEmpty()) ? elementInfo : fallback;
+                    log.warn("Failed to process @this with AI, fallback to static info", e);
+                    return elementInfo;
                 }
             }
 
@@ -917,8 +915,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             String elementType = element.getClass().getSimpleName();
             info.append(JMeterElementManager.getElementDescription(elementType)).append("\n\n");
 
-            // Add properties
-            info.append("## Properties\n\n");
+            info.append("Свойства:\n");
 
             // Get all property names
             PropertyIterator propertyIterator = element.propertyIterator();
@@ -962,39 +959,22 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 }
             }
 
-            // Add hierarchical information
-            info.append("\n## Location in Test Plan\n\n");
+            info.append("\nРасположение:\n");
 
-            // Get parent node
             TreeNode parent = currentNode.getParent();
             if (parent instanceof JMeterTreeNode) {
                 JMeterTreeNode parentNode = (JMeterTreeNode) parent;
-                info.append("- Parent: **").append(parentNode.getName()).append("** (")
+                info.append("- Родитель: **").append(parentNode.getName()).append("** (")
                         .append(parentNode.getTestElement().getClass().getSimpleName()).append(")\n");
             }
 
-            // Get child nodes
             if (currentNode.getChildCount() > 0) {
-                info.append("- Children: ").append(currentNode.getChildCount()).append("\n");
+                info.append("- Дочерних элементов: ").append(currentNode.getChildCount()).append("\n");
                 for (int i = 0; i < currentNode.getChildCount(); i++) {
                     JMeterTreeNode childNode = (JMeterTreeNode) currentNode.getChildAt(i);
                     info.append("  - **").append(childNode.getName()).append("** (")
                             .append(childNode.getTestElement().getClass().getSimpleName()).append(")\n");
                 }
-            } else {
-                info.append("- No children\n");
-            }
-
-            // Add suggestions for what can be added to this element
-            info.append("\n## Suggested Elements\n\n");
-            String[][] suggestions = getContextAwareSuggestions(currentNode.getStaticLabel());
-            if (suggestions.length > 0) {
-                info.append("You can add the following elements to this node:\n\n");
-                for (String[] suggestion : suggestions) {
-                    info.append("- ").append(suggestion[0]).append("\n");
-                }
-            } else {
-                info.append("No specific suggestions for this element type.\n");
             }
 
             return info.toString();
@@ -1011,12 +991,20 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         return message.trim().replaceFirst("^@this\\s*", "").trim();
     }
 
+    private String buildThisSummaryPrompt(String elementInfo) {
+        return "Ты ассистент по Apache JMeter. Отвечай строго на русском языке.\n" +
+                "Кратко опиши этот элемент JMeter (3-5 предложений):\n" +
+                "- что он делает в тест-плане\n" +
+                "- как настроен (ключевые свойства)\n" +
+                "- на что стоит обратить внимание\n\n" +
+                "Элемент:\n" + elementInfo;
+    }
+
     private String buildThisQuestionPrompt(String question, String elementInfo) {
-        return "Ты ассистент по JMeter. Отвечай только на русском языке.\n" +
-                "Ниже вопрос пользователя и контекст выбранного элемента тест-плана.\n" +
-                "Объясни, что делает элемент в сценарии, на что влияет, какие риски и как улучшить конфигурацию.\n\n" +
-                "Вопрос:\n" + question + "\n\n" +
-                "Контекст элемента:\n" + elementInfo;
+        return "Ты ассистент по Apache JMeter. Отвечай строго на русском языке, по существу.\n" +
+                "Ответь на вопрос пользователя про элемент JMeter.\n\n" +
+                "Вопрос: " + question + "\n\n" +
+                "Элемент:\n" + elementInfo;
     }
 
     /**
