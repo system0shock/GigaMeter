@@ -126,7 +126,7 @@ public class ElementSuggestionManager {
         JButton addButton = new JButton("Add " + displayName);
 
         // Set button appearance
-        addButton.setForeground(Color.BLACK); // Black text
+        addButton.setForeground(uiColor("Button.foreground", Color.BLACK));
         addButton.setFocusPainted(false);
         addButton.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(34, 139, 34), 1, true), // Forest green border
@@ -170,6 +170,11 @@ public class ElementSuggestionManager {
         navigationPanel.add(addButton);
         
         return addButton;
+    }
+
+    private Color uiColor(String key, Color fallback) {
+        Color color = UIManager.getColor(key);
+        return color != null ? color : fallback;
     }
     
     /**

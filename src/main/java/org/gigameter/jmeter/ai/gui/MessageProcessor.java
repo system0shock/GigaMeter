@@ -92,7 +92,7 @@ public class MessageProcessor {
         
         SimpleAttributeSet codeStyle = new SimpleAttributeSet();
         StyleConstants.setFontFamily(codeStyle, "Monospaced");
-        StyleConstants.setBackground(codeStyle, new Color(240, 240, 240));
+        StyleConstants.setBackground(codeStyle, getCodeBlockBackgroundColor());
         
         // Process each line
         for (String line : lines) {
@@ -198,14 +198,16 @@ public class MessageProcessor {
      * @throws BadLocationException If there is an error with the document location
      */
     private void renderCodeBlock(StyledDocument doc, String code, String language, SimpleAttributeSet codeStyle) throws BadLocationException {
+        Color codeBlockBackground = getCodeBlockBackgroundColor();
+
         // Create a panel for the code block with a border layout
         JPanel codePanel = new JPanel(new BorderLayout());
-        codePanel.setBackground(new Color(245, 245, 245));
+        codePanel.setBackground(codeBlockBackground);
         codePanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 0));
         
         // Create a header panel for language and copy button
         JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBackground(new Color(245, 245, 245));
+        headerPanel.setBackground(codeBlockBackground);
         headerPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
         
         // Add language label if present
@@ -243,7 +245,8 @@ public class MessageProcessor {
         JTextArea codeArea = new JTextArea(code.trim()); // Trim to remove extra lines
         codeArea.setFont(UIManager.getFont("TextField.font")); // Use default font
         codeArea.setEditable(false);
-        codeArea.setBackground(new Color(245, 245, 245));
+        codeArea.setBackground(codeBlockBackground);
+        codeArea.setForeground(uiColor("TextArea.foreground", Color.BLACK));
         codeArea.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         
         // Add the code area to the panel
@@ -304,6 +307,29 @@ public class MessageProcessor {
         
         // Scroll to the bottom of the document
         // This is handled by the caller
+    }
+
+    private Color uiColor(String key, Color fallback) {
+        Color color = UIManager.getColor(key);
+        return color != null ? color : fallback;
+    }
+
+    private Color getCodeBlockBackgroundColor() {
+        Color baseBackground = uiColor("TextArea.background", Color.WHITE);
+        int delta = isDark(baseBackground) ? 16 : -10;
+        return new Color(
+                clamp(baseBackground.getRed() + delta),
+                clamp(baseBackground.getGreen() + delta),
+                clamp(baseBackground.getBlue() + delta));
+    }
+
+    private boolean isDark(Color color) {
+        double luminance = (0.2126 * color.getRed()) + (0.7152 * color.getGreen()) + (0.0722 * color.getBlue());
+        return luminance < 128;
+    }
+
+    private int clamp(int value) {
+        return Math.max(0, Math.min(255, value));
     }
 }
 
