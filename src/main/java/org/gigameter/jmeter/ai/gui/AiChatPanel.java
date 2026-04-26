@@ -753,27 +753,38 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() throws Exception {
-                String elementInfo = getCurrentElementInfo();
-                if (elementInfo == null) {
+                GuiPackage gp = GuiPackage.getInstance();
+                JMeterTreeNode currentNode = gp != null ? gp.getTreeListener().getCurrentNode() : null;
+                TestElement element = currentNode != null ? currentNode.getTestElement() : null;
+
+                if (element == null) {
                     return "В плане тестирования не выбран элемент. Выберите элемент и повторите запрос.";
                 }
 
                 AiService serviceToUse = getServiceForSelectedModel();
                 if (serviceToUse == null) {
-                    return elementInfo;
+                    return getCurrentElementInfo();
                 }
 
                 String question = extractThisQuery(message);
+                boolean isJsr223 = element.getClass().getSimpleName().contains("JSR223");
+
                 try {
                     List<String> prompt = new ArrayList<>();
-                    prompt.add(question.isEmpty()
-                            ? buildThisSummaryPrompt(elementInfo)
-                            : buildThisQuestionPrompt(question, elementInfo));
+                    if (isJsr223) {
+                        prompt.add(buildJsr223ExplainPrompt(currentNode, element, question));
+                    } else {
+                        String elementInfo = getCurrentElementInfo();
+                        if (elementInfo == null) return "Не удалось получить информацию об элементе.";
+                        prompt.add(question.isEmpty()
+                                ? buildThisSummaryPrompt(elementInfo)
+                                : buildThisQuestionPrompt(question, elementInfo));
+                    }
                     String aiResponse = serviceToUse.generateResponse(prompt);
-                    return (aiResponse == null || aiResponse.trim().isEmpty()) ? elementInfo : aiResponse;
+                    return (aiResponse == null || aiResponse.trim().isEmpty()) ? getCurrentElementInfo() : aiResponse;
                 } catch (Throwable e) {
                     log.warn("Failed to process @this with AI, fallback to static info", e);
-                    return elementInfo;
+                    return getCurrentElementInfo();
                 }
             }
 
@@ -1007,6 +1018,68 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return "";
         }
         return message.trim().replaceFirst("^@this\\s*", "").trim();
+    }
+
+    private String buildJsr223ExplainPrompt(JMeterTreeNode node, TestElement element, String userQuestion) {
+        String name     = node.getName();
+        String type     = element.getClass().getSimpleName();
+        String language = element.getPropertyAsString("scriptLanguage");
+        if (language == null || language.trim().isEmpty()) language = "groovy";
+        String script   = element.getPropertyAsString("script");
+        if (script == null) script = "";
+        if (script.length() > 4000) script = script.substring(0, 4000) + "\n... (скрипт обрезан)";
+
+        // Gather sibling context
+        StringBuilder siblings = new StringBuilder();
+        TreeNode parent = node.getParent();
+        if (parent instanceof JMeterTreeNode) {
+            JMeterTreeNode parentNode = (JMeterTreeNode) parent;
+            siblings.append("Родитель: ").append(parentNode.getName())
+                    .append(" (").append(parentNode.getTestElement().getClass().getSimpleName()).append(")\n");
+            int count = parentNode.getChildCount();
+            if (count > 1) {
+                siblings.append("Соседние элементы:\n");
+                for (int i = 0; i < count && i < 8; i++) {
+                    JMeterTreeNode s = (JMeterTreeNode) parentNode.getChildAt(i);
+                    String marker = s.equals(node) ? " ← текущий" : "";
+                    siblings.append("  ").append(i + 1).append(". ").append(s.getName())
+                            .append(" (").append(s.getTestElement().getClass().getSimpleName()).append(")")
+                            .append(marker).append("\n");
+                }
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Ты ассистент по Apache JMeter. Отвечай строго на русском языке.\n");
+        sb.append("Перед ответом мысленно разбери код скрипта. Выдай только финальный ответ без заголовков шагов.\n\n");
+
+        if (script.trim().isEmpty()) {
+            sb.append("Элемент \"").append(name).append("\" — JSR223 (").append(type).append("), язык: ").append(language).append(".\n");
+            sb.append("Скрипт пустой.\n\n");
+            if (!userQuestion.isEmpty()) {
+                sb.append("Вопрос: ").append(userQuestion).append("\n");
+            } else {
+                sb.append("Сообщи пользователю, что скрипт пустой, и предложи написать его — уточни, что именно нужно сделать в этом шаге.\n");
+            }
+        } else {
+            sb.append("Элемент \"").append(name).append("\" — JSR223 (").append(type).append("), язык: ").append(language).append(".\n");
+            if (siblings.length() > 0) sb.append(siblings);
+            sb.append("\nСкрипт:\n```").append(language).append("\n").append(script).append("\n```\n\n");
+
+            if (!userQuestion.isEmpty()) {
+                sb.append("Вопрос пользователя: ").append(userQuestion).append("\n\n");
+                sb.append("Ответь по существу, опираясь на код выше.\n");
+            } else {
+                sb.append("Объясни этот скрипт:\n");
+                sb.append("- Что делает (цель в контексте теста)\n");
+                sb.append("- Какие JMeter-переменные читает (vars.get / props.get / Parameters)\n");
+                sb.append("- Какие переменные записывает (vars.put / props.put)\n");
+                sb.append("- Побочные эффекты (HTTP-запросы, файлы, логи, ctx.setCurrentSampler и т.п.)\n");
+                sb.append("- Потенциальные проблемы или улучшения\n");
+                sb.append("Если что-то неочевидно — задай уточняющий вопрос в конце.\n");
+            }
+        }
+        return sb.toString();
     }
 
     private String buildThisSummaryPrompt(String elementInfo) {
