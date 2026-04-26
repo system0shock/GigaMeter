@@ -83,7 +83,7 @@ public class JMeterPlanSerializer {
         public final Map<Integer, JMeterTreeNode> nodeById;
         public final boolean truncated;
 
-        SerializedPlan(List<ElementEntry> elements,
+        public SerializedPlan(List<ElementEntry> elements,
                        Map<Integer, JMeterTreeNode> nodeById,
                        boolean truncated) {
             this.elements = Collections.unmodifiableList(elements);
@@ -120,7 +120,7 @@ public class JMeterPlanSerializer {
         public final String name;
         public final Map<String, String> props;
 
-        ElementEntry(int id, int depth, String type, String name, Map<String, String> props) {
+        public ElementEntry(int id, int depth, String type, String name, Map<String, String> props) {
             this.id = id;
             this.depth = depth;
             this.type = type;
