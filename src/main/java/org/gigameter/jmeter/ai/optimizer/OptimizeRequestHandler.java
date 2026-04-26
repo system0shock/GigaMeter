@@ -131,12 +131,8 @@ public class OptimizeRequestHandler {
                 count++;
             }
 
-            String prompt = "Ты эксперт по Apache JMeter. Отвечай на русском языке.\n" +
-                    "Проанализируй конфигурацию элемента JMeter и дай 3-5 конкретных рекомендаций по улучшению.\n" +
-                    "Опирайся на реальные значения свойств. Указывай что именно изменить и почему.\n\n" +
-                    "Тип: " + elementType + "\n" +
-                    "Название: " + elementName + "\n\n" +
-                    "Свойства:\n" + (props.length() > 0 ? props : "(нет настроенных свойств)\n");
+            String prompt = buildOptimizePrompt(elementType, elementName,
+                    props.length() > 0 ? props.toString() : "(нет настроенных свойств)\n");
 
             String recommendations = aiService.generateResponse(java.util.Collections.singletonList(prompt));
 
@@ -147,6 +143,22 @@ public class OptimizeRequestHandler {
             log.error("Error getting optimization recommendations", e);
             return "Ошибка при анализе элемента: " + e.getMessage();
         }
+    }
+
+    static String buildPromptForTest(String elementType, String elementName, String props) {
+        return buildOptimizePrompt(elementType, elementName, props);
+    }
+
+    private static String buildOptimizePrompt(String elementType, String elementName, String props) {
+        return "Ты эксперт по Apache JMeter. Отвечай на русском языке.\n" +
+                "Проанализируй конфигурацию элемента JMeter и дай конкретные рекомендации.\n\n" +
+                "Формат:\n" +
+                "1. Summary\n" +
+                "2. Risks\n" +
+                "3. Recommendations\n\n" +
+                "Тип: " + elementType + "\n" +
+                "Название: " + elementName + "\n\n" +
+                "Свойства:\n" + props;
     }
 }
 
