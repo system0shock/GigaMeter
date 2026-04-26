@@ -107,6 +107,15 @@ public class JMeterPlanSerializer {
         public int size() {
             return elements.size();
         }
+
+        /**
+         * Renders the plan as a human-readable indented tree for AI prompts.
+         * Converts JMeter class names to plain labels and formats key props inline.
+         * Much easier for LLMs to interpret than raw JSON.
+         */
+        public String toReadableTree() {
+            return buildReadableTree(elements, truncated);
+        }
     }
 
     // =========================================================================
@@ -243,5 +252,95 @@ public class JMeterPlanSerializer {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t");
+    }
+
+    // =========================================================================
+    // Human-readable tree rendering
+    // =========================================================================
+
+    private static String buildReadableTree(List<ElementEntry> entries, boolean truncated) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Структура JMeter тест-плана (дерево элементов, отступы = вложенность):\n");
+        for (ElementEntry e : entries) {
+            String indent = "  ".repeat(Math.max(0, e.depth));
+            String label = friendlyTypeName(e.type);
+            String inline = inlineProps(e.type, e.props);
+            sb.append(indent).append("└─ [").append(label).append("] \"").append(e.name).append("\"");
+            if (!inline.isEmpty()) sb.append(" | ").append(inline);
+            sb.append("\n");
+        }
+        if (truncated) sb.append("(список обрезан, показаны первые элементы)\n");
+        return sb.toString();
+    }
+
+    private static String friendlyTypeName(String type) {
+        if (type == null) return "Element";
+        if (type.contains("ThreadGroup"))         return "Thread Group";
+        if (type.contains("HTTPSampler"))         return "HTTP Sampler";
+        if (type.contains("JSR223Sampler"))       return "JSR223 Sampler";
+        if (type.contains("JSR223PreProcessor"))  return "JSR223 PreProcessor";
+        if (type.contains("JSR223PostProcessor")) return "JSR223 PostProcessor";
+        if (type.contains("JavaSampler"))         return "Java Sampler";
+        if (type.contains("TransactionController")) return "Transaction Controller";
+        if (type.contains("IfController"))        return "If Controller";
+        if (type.contains("WhileController"))     return "While Controller";
+        if (type.contains("ForeachController"))   return "ForEach Controller";
+        if (type.contains("LoopController"))      return "Loop Controller";
+        if (type.contains("GenericSampler"))      return "Generic Sampler";
+        if (type.contains("ResponseAssertion"))   return "Response Assertion";
+        if (type.contains("JSONPathAssertion"))   return "JSONPath Assertion";
+        if (type.contains("JSONPostProcessor"))   return "JSON Extractor";
+        if (type.contains("RegexExtractor"))      return "Regex Extractor";
+        if (type.contains("HeaderManager"))       return "Header Manager";
+        if (type.contains("CookieManager"))       return "Cookie Manager";
+        if (type.contains("CacheManager"))        return "Cache Manager";
+        if (type.contains("CSVDataSet"))          return "CSV Data Set";
+        if (type.contains("ConstantTimer"))       return "Constant Timer";
+        if (type.contains("UniformRandomTimer"))  return "Random Timer";
+        if (type.contains("ResultCollector"))     return "Listener";
+        if (type.contains("DebugSampler"))        return "Debug Sampler";
+        return type; // fallback: raw class name
+    }
+
+    private static String inlineProps(String type, Map<String, String> props) {
+        if (props == null || props.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        if (type != null && type.contains("HTTPSampler")) {
+            String method = props.get("HTTPSampler.method");
+            String path   = props.get("HTTPSampler.path");
+            String domain = props.get("HTTPSampler.domain");
+            if (method != null) sb.append(method).append(" ");
+            if (domain != null && !domain.isEmpty()) sb.append(domain);
+            if (path   != null && !path.isEmpty())   sb.append(path);
+        } else if (type != null && type.contains("ThreadGroup")) {
+            String users   = props.get("ThreadGroup.num_threads");
+            String ramp    = props.get("ThreadGroup.ramp_time");
+            String duration = props.get("ThreadGroup.duration");
+            if (users != null)    sb.append("users=").append(users);
+            if (ramp  != null)    sb.append(", ramp=").append(ramp).append("s");
+            if (duration != null && !duration.equals("0")) sb.append(", duration=").append(duration).append("s");
+        } else if (type != null && (type.contains("JSR223") || type.contains("jsr223"))) {
+            String lang = props.get("scriptLanguage");
+            if (lang != null) sb.append("lang=").append(lang);
+        } else if (type != null && type.contains("IfController")) {
+            String cond = props.get("IfController.condition");
+            if (cond != null) sb.append("if: ").append(cond.length() > 60 ? cond.substring(0, 60) + "..." : cond);
+        } else if (type != null && type.contains("WhileController")) {
+            String cond = props.get("WhileController.condition");
+            if (cond == null) cond = props.getOrDefault("IfController.condition", null);
+            if (cond != null) sb.append("while: ").append(cond.length() > 60 ? cond.substring(0, 60) + "..." : cond);
+        } else if (type != null && type.contains("LoopController")) {
+            String loops = props.get("LoopController.loops");
+            if (loops != null) sb.append("loops=").append(loops);
+        } else if (type != null && type.contains("CSVDataSet")) {
+            String file = props.get("filename");
+            String vars = props.get("variableNames");
+            if (file != null) sb.append("file=").append(file);
+            if (vars != null) sb.append(", vars=").append(vars);
+        } else if (type != null && type.contains("JSONPostProcessor")) {
+            String ref = props.get("JSONPostProcessor.referenceNames");
+            if (ref != null) sb.append("→ ").append(ref);
+        }
+        return sb.toString().trim();
     }
 }
