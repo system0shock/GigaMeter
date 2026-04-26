@@ -29,6 +29,7 @@ import org.gigameter.jmeter.ai.usage.UsageCommandHandler;
 import org.gigameter.jmeter.ai.utils.AiConfig;
 import org.gigameter.jmeter.ai.utils.JMeterElementManager;
 import org.gigameter.jmeter.ai.utils.JMeterElementRequestHandler;
+import org.gigameter.jmeter.ai.utils.JMeterPlanSerializer;
 import org.gigameter.jmeter.ai.utils.Models;
 import org.gigameter.jmeter.ai.utils.VersionUtils;
 import org.gigameter.jmeter.ai.optimizer.OptimizeRequestHandler;
@@ -1540,7 +1541,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         if (includePlan) {
             String planSummary = getTestPlanContextSummary();
             if (!planSummary.isEmpty()) {
-                context.append("Сводка тест-плана:\n").append(planSummary);
+                context.append("Тест-план (JSON):\n").append(planSummary);
             }
         }
 
@@ -1579,27 +1580,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             if (!(rootObj instanceof JMeterTreeNode)) {
                 return "";
             }
-
             JMeterTreeNode root = (JMeterTreeNode) rootObj;
-            StringBuilder out = new StringBuilder();
-            out.append("- Корень: ").append(root.getName()).append("\n");
-
-            int threadGroupCount = 0;
-            for (int i = 0; i < root.getChildCount(); i++) {
-                Object child = root.getChildAt(i);
-                if (!(child instanceof JMeterTreeNode)) {
-                    continue;
-                }
-                JMeterTreeNode node = (JMeterTreeNode) child;
-                TestElement element = node.getTestElement();
-                if (element != null && element.getClass().getSimpleName().contains("ThreadGroup")) {
-                    threadGroupCount++;
-                    out.append("- TG ").append(threadGroupCount).append(": ").append(node.getName())
-                            .append(" (элементов: ").append(node.getChildCount()).append(")\n");
-                }
+            JMeterPlanSerializer.SerializedPlan plan = JMeterPlanSerializer.serialize(root, 150, 20);
+            String json = plan.toJson();
+            if (plan.truncated) {
+                json += "\n// (план обрезан, показаны первые 150 элементов)";
             }
-            out.append("- Количество Thread Group: ").append(threadGroupCount);
-            return out.toString();
+            return json;
         } catch (Exception e) {
             log.debug("Failed to build test plan context summary", e);
             return "";

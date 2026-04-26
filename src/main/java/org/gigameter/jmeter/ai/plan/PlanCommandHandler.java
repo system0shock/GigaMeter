@@ -7,6 +7,7 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.gigameter.jmeter.ai.service.AiService;
 import org.gigameter.jmeter.ai.utils.JMeterElementManager;
+import org.gigameter.jmeter.ai.utils.JMeterPlanSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -365,7 +366,7 @@ public class PlanCommandHandler {
                 out.append("- ").append(String.join(", ", stats.entities)).append("\n\n");
             }
 
-            String aiInterpretation = tryBuildBusinessInterpretationWithAi(tgNode.getName(), users, rampUp, scheduler, duration, stats);
+            String aiInterpretation = tryBuildBusinessInterpretationWithAi(tgNode, users, rampUp, scheduler, duration, stats);
             if (!aiInterpretation.isEmpty()) {
                 out.append("### Бизнес-интерпретация (AI)\n");
                 out.append(aiInterpretation).append("\n\n");
@@ -780,7 +781,7 @@ public class PlanCommandHandler {
         return text.toString();
     }
 
-    private String tryBuildBusinessInterpretationWithAi(String tgName,
+    private String tryBuildBusinessInterpretationWithAi(JMeterTreeNode tgNode,
                                                         int users,
                                                         int rampUp,
                                                         boolean scheduler,
@@ -790,7 +791,8 @@ public class PlanCommandHandler {
             return "";
         }
         try {
-            String prompt = buildBusinessInterpretationPrompt(tgName, users, rampUp, scheduler, duration, stats);
+            String planJson = JMeterPlanSerializer.toCompactJson(tgNode, 200, 20);
+            String prompt = buildBusinessInterpretationPrompt(tgNode.getName(), users, rampUp, scheduler, duration, stats, planJson);
             String response = aiService.generateResponse(Collections.singletonList(prompt));
             if (response == null) {
                 return "";
@@ -808,7 +810,8 @@ public class PlanCommandHandler {
                                                      int rampUp,
                                                      boolean scheduler,
                                                      int duration,
-                                                     PlanAnalysisStats stats) {
+                                                     PlanAnalysisStats stats,
+                                                     String planJson) {
         StringBuilder flow = new StringBuilder();
         int maxLines = Math.min(stats.flowLines.size(), 40);
         for (int i = 0; i < maxLines; i++) {
@@ -832,7 +835,8 @@ public class PlanCommandHandler {
                 "- Controllers: " + stats.controllers + "\n" +
                 "- Timers: " + stats.timers + "\n" +
                 "- Entities: " + (stats.entities.isEmpty() ? "нет явных" : String.join(", ", stats.entities)) + "\n\n" +
-                "Поток выполнения:\n" + flow;
+                "Поток выполнения:\n" + flow +
+                "\nСтруктура плана (JSON):\n" + planJson;
     }
 
     private static class PlanAnalysisStats {
