@@ -1619,6 +1619,17 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             }
 
             TestElement element = currentNode.getTestElement();
+            if (element.getClass().getSimpleName().contains("JSR223")) {
+                String treePath = buildTreePath(currentNode);
+                return buildSelectedElementContext(
+                        element.getClass().getSimpleName(),
+                        currentNode.getName(),
+                        treePath,
+                        element.getPropertyAsString("scriptLanguage"),
+                        element.getPropertyAsString("script"),
+                        4000);
+            }
+
             StringBuilder out = new StringBuilder();
             out.append("- Имя: ").append(currentNode.getName()).append("\n");
             out.append("- Тип: ").append(element.getClass().getSimpleName()).append("\n");
@@ -1632,6 +1643,55 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.debug("Failed to build selected element summary", t);
             return "";
         }
+    }
+
+    private String buildTreePath(JMeterTreeNode node) {
+        if (node == null) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        JMeterTreeNode current = node;
+        while (current != null) {
+            parts.add(0, current.getName());
+            javax.swing.tree.TreeNode parent = current.getParent();
+            current = (parent instanceof JMeterTreeNode) ? (JMeterTreeNode) parent : null;
+        }
+        return String.join(" > ", parts);
+    }
+
+    static String buildSelectedElementContextForTest(
+            String elementType,
+            String elementName,
+            String treePath,
+            String scriptLanguage,
+            String scriptBody,
+            int maxChars) {
+        return buildSelectedElementContext(elementType, elementName, treePath, scriptLanguage, scriptBody, maxChars);
+    }
+
+    private static String buildSelectedElementContext(
+            String elementType,
+            String elementName,
+            String treePath,
+            String scriptLanguage,
+            String scriptBody,
+            int maxChars) {
+        String trimmedScript = truncate(scriptBody, maxChars);
+        return "- Имя: " + elementName + "\n" +
+                "- Тип: " + elementType + "\n" +
+                "- Путь: " + treePath + "\n" +
+                "- Язык скрипта: " + scriptLanguage + "\n" +
+                "- Скрипт:\n" + trimmedScript;
+    }
+
+    private static String truncate(String text, int maxChars) {
+        if (text == null) {
+            return "";
+        }
+        if (text.length() <= maxChars) {
+            return text;
+        }
+        return text.substring(0, maxChars) + "\n...(truncated)";
     }
 
     /**
