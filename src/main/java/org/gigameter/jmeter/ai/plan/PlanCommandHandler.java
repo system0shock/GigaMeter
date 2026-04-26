@@ -31,7 +31,7 @@ import java.util.Set;
  */
 public class PlanCommandHandler {
     private static final Logger log = LoggerFactory.getLogger(PlanCommandHandler.class);
-    private static final String STRUCTURED_PLAN_FAILURE_PREFIX = "Failed to generate structured plan preview. ";
+    private static final String PLAN_PREVIEW_FAILURE_PREFIX = "Не удалось подготовить предпросмотр плана. ";
 
     private final AiService aiService;
     private final PlanCommandParser parser;
@@ -76,28 +76,27 @@ public class PlanCommandHandler {
             draftValidator.validate(planJson);
             PlanDraftStore.save(planJson, request.getScenario());
             return previewRenderer.render(planJson, request.getScenario());
+        } catch (PlanDraftException e) {
+            log.warn("Failed to build plan preview: {}", e.getCategory(), e);
+            return structuredPlanFailure(e.getCategory());
         } catch (Exception e) {
             log.error("Failed to build plan preview", e);
-            return structuredPlanFailure(inferStructuredPlanFailureReason(e));
+            return PLAN_PREVIEW_FAILURE_PREFIX
+                    + "Произошла внутренняя ошибка. Повторите команду ещё раз.";
         }
     }
 
-    private String structuredPlanFailure(String reason) {
-        return STRUCTURED_PLAN_FAILURE_PREFIX
-                + "The model returned an invalid response (" + reason + "). "
-                + "Try a shorter scenario or re-run the command.";
-    }
-
-    private String inferStructuredPlanFailureReason(Exception e) {
-        if (e == null || e.getMessage() == null) {
-            return "malformed response";
+    private String structuredPlanFailure(PlanDraftException.ErrorCategory category) {
+        if (category == PlanDraftException.ErrorCategory.EMPTY_RESPONSE) {
+            return PLAN_PREVIEW_FAILURE_PREFIX
+                    + "Пустой ответ от AI-модели. Попробуйте повторить команду.";
         }
-
-        String normalized = e.getMessage().trim().toLowerCase(Locale.ROOT);
-        if (normalized.contains("empty ai response")) {
-            return "empty response";
+        if (category == PlanDraftException.ErrorCategory.SERVICE_FAILURE) {
+            return PLAN_PREVIEW_FAILURE_PREFIX
+                    + "Сервис AI недоступен или вернул ошибку. Проверьте подключение, токен и повторите попытку.";
         }
-        return "malformed response";
+        return PLAN_PREVIEW_FAILURE_PREFIX
+                + "Некорректный ответ модели. Уточните сценарий или повторите команду.";
     }
 
     private String usageMessage() {
