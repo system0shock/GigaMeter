@@ -119,7 +119,7 @@ public class OpenAiService implements AiService {
     }
 
     public String sendMessage(String message) {
-        log.info("Sending message to OpenAI: {}", message);
+        log.info("Sending message to OpenAI: length={}", message == null ? 0 : message.length());
         return generateResponse(java.util.Collections.singletonList(message));
     }
 
@@ -172,7 +172,10 @@ public class OpenAiService implements AiService {
 
             ChatCompletion chatCompletion = client.chat().completions().create(params);
 
-            log.info("Chat completions {}", chatCompletion);
+            log.info("Received OpenAI completion: id={}, model={}, choices={}",
+                    chatCompletion.id(),
+                    chatCompletion.model(),
+                    chatCompletion.choices() == null ? 0 : chatCompletion.choices().size());
 
             // Record usage data if available
             try {
