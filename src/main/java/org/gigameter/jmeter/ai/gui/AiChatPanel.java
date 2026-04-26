@@ -967,6 +967,23 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 JMeterTreeNode parentNode = (JMeterTreeNode) parent;
                 info.append("- Родитель: **").append(parentNode.getName()).append("** (")
                         .append(parentNode.getTestElement().getClass().getSimpleName()).append(")\n");
+
+                // Add siblings for context
+                int siblingCount = parentNode.getChildCount();
+                if (siblingCount > 1) {
+                    info.append("- Соседние элементы (").append(siblingCount).append(" всего):\n");
+                    for (int i = 0; i < siblingCount && i < 10; i++) {
+                        JMeterTreeNode sibling = (JMeterTreeNode) parentNode.getChildAt(i);
+                        String marker = sibling.equals(currentNode) ? " ← текущий" : "";
+                        TestElement sibElem = sibling.getTestElement();
+                        String sibType = sibElem != null ? sibElem.getClass().getSimpleName() : "?";
+                        info.append("  ").append(i + 1).append(". **").append(sibling.getName())
+                                .append("** (").append(sibType).append(")").append(marker).append("\n");
+                    }
+                    if (siblingCount > 10) {
+                        info.append("  ... ещё ").append(siblingCount - 10).append(" элементов\n");
+                    }
+                }
             }
 
             if (currentNode.getChildCount() > 0) {
@@ -993,17 +1010,21 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     }
 
     private String buildThisSummaryPrompt(String elementInfo) {
-        return "Ты ассистент по Apache JMeter. Отвечай строго на русском языке.\n" +
-                "Кратко опиши этот элемент JMeter (3-5 предложений):\n" +
-                "- что он делает в тест-плане\n" +
-                "- как настроен (ключевые свойства)\n" +
-                "- на что стоит обратить внимание\n\n" +
+        return "Ты ассистент по Apache JMeter. Отвечай строго на русском языке.\n\n" +
+                "Шаг 1 — АНАЛИЗ (1-2 предложения): кратко изложи своё понимание элемента и его роли в контексте плана.\n" +
+                "Шаг 2 — ОТВЕТ: опиши элемент по пунктам:\n" +
+                "  - Что делает в тест-плане\n" +
+                "  - Как настроен (ключевые свойства из данных ниже)\n" +
+                "  - На что стоит обратить внимание (потенциальные проблемы или улучшения)\n" +
+                "Шаг 3 — ВОПРОСЫ: если есть неопределённость или элемент можно улучшить, задай 1-2 конкретных уточняющих вопроса пользователю.\n\n" +
                 "Элемент:\n" + elementInfo;
     }
 
     private String buildThisQuestionPrompt(String question, String elementInfo) {
-        return "Ты ассистент по Apache JMeter. Отвечай строго на русском языке, по существу.\n" +
-                "Ответь на вопрос пользователя про элемент JMeter.\n\n" +
+        return "Ты ассистент по Apache JMeter. Отвечай строго на русском языке.\n\n" +
+                "Шаг 1 — ПОНИМАНИЕ (1 предложение): перефразируй вопрос пользователя своими словами.\n" +
+                "Шаг 2 — ОТВЕТ: дай конкретный ответ на вопрос, опираясь на свойства элемента из данных ниже.\n" +
+                "Шаг 3 — УТОЧНЕНИЕ: если для полного ответа не хватает информации, задай 1 уточняющий вопрос.\n\n" +
                 "Вопрос: " + question + "\n\n" +
                 "Элемент:\n" + elementInfo;
     }
@@ -1491,6 +1512,16 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         List<String> requestConversation = new ArrayList<>(conversationHistory);
         if (requestConversation.isEmpty()) {
             return requestConversation;
+        }
+
+        // Prepend system persona on first turn only
+        if (requestConversation.size() == 1) {
+            String systemInstruction = "Ты ассистент по Apache JMeter. Отвечай на русском языке.\n" +
+                    "Для каждого ответа:\n" +
+                    "1. Кратко (1 предложение) изложи своё понимание вопроса.\n" +
+                    "2. Дай конкретный ответ по существу.\n" +
+                    "3. Если есть неопределённость или пользователю нужно что-то уточнить — задай 1-2 вопроса в конце.\n";
+            requestConversation.set(0, systemInstruction + "\nВопрос: " + requestConversation.get(0));
         }
 
         if (!isChatContextEnabled()) {
