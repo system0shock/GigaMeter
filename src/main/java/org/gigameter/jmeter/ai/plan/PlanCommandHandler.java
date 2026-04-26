@@ -1002,47 +1002,51 @@ public class PlanCommandHandler {
     }
 
     private void setRawBodyOnSampler(TestElement sampler, String bodyText) {
+        // Mark sampler as raw body mode
         sampler.setProperty("HTTPSampler.postBodyRaw", "true");
 
+        // Try the typed API first (HTTPSamplerBase.setPostBodyRaw + addNonEncodedArgument)
         try {
-            Method setPostBodyRawMethod = sampler.getClass().getMethod("setPostBodyRaw", boolean.class);
-            setPostBodyRawMethod.invoke(sampler, true);
-        } catch (Exception ignored) {
-            // Fall back to JMeter property mapping only.
-        }
+            Method setPostBodyRaw = sampler.getClass().getMethod("setPostBodyRaw", boolean.class);
+            setPostBodyRaw.invoke(sampler, true);
 
-        sampler.setProperty("Argument.value", bodyText);
-
-        try {
-            Method getArgumentsMethod = sampler.getClass().getMethod("getArguments");
-            Object args = getArgumentsMethod.invoke(sampler);
+            // Clear existing arguments then add the raw body as a single unnamed argument
+            Method getArguments = sampler.getClass().getMethod("getArguments");
+            Object args = getArguments.invoke(sampler);
             if (args != null) {
                 try {
-                    Method removeAll = args.getClass().getMethod("removeAllArguments");
-                    removeAll.invoke(args);
-                } catch (Exception ignored) {
-                    // Best-effort cleanup.
-                }
-
-                try {
-                    Method addNonEncoded = sampler.getClass().getMethod("addNonEncodedArgument",
-                            String.class, String.class, String.class);
-                    addNonEncoded.invoke(sampler, "", bodyText, "");
-                    return;
-                } catch (Exception ignored) {
-                    // Fall through to Arguments.addArgument.
-                }
-
-                try {
-                    Method addArgument = args.getClass().getMethod("addArgument", String.class, String.class);
-                    addArgument.invoke(args, "", bodyText);
-                } catch (Exception ignored) {
-                    // Fallback already set via property.
-                }
+                    args.getClass().getMethod("removeAllArguments").invoke(args);
+                } catch (Exception ignored) {}
             }
-        } catch (Exception ignored) {
-            // Fallback already set via property.
+
+            Method addNonEncoded = sampler.getClass().getMethod(
+                    "addNonEncodedArgument", String.class, String.class, String.class);
+            addNonEncoded.invoke(sampler, "", bodyText, "");
+            return;
+        } catch (Exception e) {
+            log.debug("setPostBodyRaw via typed API failed, trying Arguments fallback: {}", e.getMessage());
         }
+
+        // Fallback: set via Arguments collection directly
+        try {
+            Method getArguments = sampler.getClass().getMethod("getArguments");
+            Object args = getArguments.invoke(sampler);
+            if (args != null) {
+                try {
+                    args.getClass().getMethod("removeAllArguments").invoke(args);
+                } catch (Exception ignored) {}
+                try {
+                    Method addArg = args.getClass().getMethod("addArgument", String.class, String.class);
+                    addArg.invoke(args, "", bodyText);
+                    return;
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception e) {
+            log.debug("Arguments fallback also failed: {}", e.getMessage());
+        }
+
+        // Last resort: set as raw property (works in older JMeter builds)
+        sampler.setProperty("Argument.value", bodyText);
     }
 
     private void configureJsr223ScriptElement(JMeterTreeNode node, String language, String script) {
