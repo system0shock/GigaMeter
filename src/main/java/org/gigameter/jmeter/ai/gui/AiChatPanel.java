@@ -1076,7 +1076,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 sb.append("- Какие переменные записывает (vars.put / props.put)\n");
                 sb.append("- Побочные эффекты (HTTP-запросы, файлы, логи, ctx.setCurrentSampler и т.п.)\n");
                 sb.append("- Потенциальные проблемы или улучшения\n");
-                sb.append("Если что-то неочевидно — задай уточняющий вопрос в конце.\n");
             }
         }
         return sb.toString();
@@ -1090,7 +1089,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 "- Что этот элемент делает в тест-плане\n" +
                 "- Ключевые настройки (из свойств ниже)\n" +
                 "- На что стоит обратить внимание\n" +
-                "Если по элементу есть реальные вопросы — добавь их в конце без заголовка, просто как вопросы.\n\n" +
                 "Элемент:\n" + elementInfo;
     }
 
@@ -1098,7 +1096,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         return "Ты ассистент по Apache JMeter. Отвечай строго на русском языке.\n" +
                 "Перед ответом мысленно разберись в вопросе и в данных об элементе.\n" +
                 "Выдай только финальный ответ — без заголовков шагов, без пересказа вопроса.\n\n" +
-                "Если для полного ответа нужна доп. информация — добавь 1 конкретный вопрос в конце.\n\n" +
                 "Вопрос: " + question + "\n\n" +
                 "Элемент:\n" + elementInfo;
     }
@@ -1593,7 +1590,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             String systemInstruction = "Ты ассистент по Apache JMeter. Отвечай на русском языке.\n" +
                     "Перед каждым ответом мысленно разберись в вопросе и контексте.\n" +
                     "Выдавай только финальный ответ — без заголовков шагов и без пересказа вопроса.\n" +
-                    "Если вопрос неоднозначен или нужна доп. информация — добавь 1-2 уточняющих вопроса в самом конце.\n";
+                    "";
             requestConversation.set(0, systemInstruction + "\nВопрос: " + requestConversation.get(0));
         }
 
