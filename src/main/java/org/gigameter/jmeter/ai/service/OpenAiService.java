@@ -335,6 +335,9 @@ public class OpenAiService implements AiService {
                 .addSystemMessage(systemPrompt);
 
         int historyStart = Math.max(conversation.size() - maxHistorySize, 0);
+        if (historyStart > 0 && historyStart % 2 != 0) {
+            historyStart++;
+        }
         List<String> limitedHistory = conversation.subList(historyStart, conversation.size());
         boolean addedConversationMessage = false;
 
