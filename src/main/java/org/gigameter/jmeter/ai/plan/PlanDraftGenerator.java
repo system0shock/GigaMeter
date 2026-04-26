@@ -29,33 +29,44 @@ final class PlanDraftGenerator {
     private String buildPrompt(String scenario) {
         return "Ты генерируешь черновик JMeter тест-плана для нагрузочного тестирования backend API.\n" +
                 "Верни ТОЛЬКО валидный JSON без объяснений, комментариев и markdown-обёрток.\n\n" +
-                "ОБЯЗАТЕЛЬНЫЕ поля (всегда заполняй):\n" +
-                "- thread_group: name, users, ramp_up_seconds, duration_seconds\n" +
-                "- steps[]: name, sampler_type (\"http\" или \"jsr223\")\n" +
-                "- для http-шагов: method, path\n\n" +
-                "ОПЦИОНАЛЬНЫЕ поля (включай только если явно нужны по сценарию):\n" +
-                "- defaults.base_url — если указан хост\n" +
-                "- defaults.think_time_ms — пауза между шагами по умолчанию\n" +
-                "- defaults.csv — только если сценарий требует внешних тестовых данных\n" +
-                "- steps[].headers — только нестандартные заголовки (Content-Type, Authorization и т.п.)\n" +
-                "- steps[].body — только для POST/PUT/PATCH\n" +
-                "- steps[].query — только если есть query-параметры\n" +
-                "- steps[].assert.status_code — если сценарий подразумевает проверку кода ответа\n" +
-                "- steps[].extract — только если токен или данные нужны в последующих шагах\n" +
-                "- steps[].think_time_ms — если шаг требует паузы отличной от default\n" +
-                "- steps[].pre_processors / post_processors — только для нетривиальной подготовки\n\n" +
-                "Если в сценарии не указаны конкретные значения — используй разумные defaults:\n" +
-                "users=10, ramp_up_seconds=30, duration_seconds=120, think_time_ms=500.\n\n" +
-                "Структура JSON:\n" +
+                "ПРАВИЛА (строго соблюдай):\n" +
+                "1. Если сценарий включает аутентификацию — первым шагом ставь login, используй extract для токена,\n" +
+                "   и передавай его через headers (Authorization: Bearer ${token}) во все последующие шаги.\n" +
+                "2. Логически связанные шаги (например, оформление заказа) группируй в transaction_controller.\n" +
+                "3. Для каждого HTTP-шага где ожидается конкретный ответ — добавляй assert.status_code.\n" +
+                "4. POST/PUT/PATCH шаги должны иметь body и заголовок Content-Type в headers.\n" +
+                "5. Если нужны тестовые данные (логины, ID и т.п.) — добавляй defaults.csv.\n" +
+                "6. Defaults при отсутствии явных значений: users=10, ramp_up_seconds=30, duration_seconds=120, think_time_ms=1000.\n\n" +
+                "ПРИМЕР — типовой auth + CRUD flow:\n" +
                 "{\n" +
-                "  \"thread_group\": {\"name\": \"string\", \"users\": number, \"ramp_up_seconds\": number, \"duration_seconds\": number},\n" +
-                "  \"defaults\": {\"base_url\": \"string\", \"think_time_ms\": number},\n" +
+                "  \"thread_group\": {\"name\": \"API Users\", \"users\": 10, \"ramp_up_seconds\": 30, \"duration_seconds\": 120},\n" +
+                "  \"defaults\": {\"base_url\": \"https://api.example.com\", \"think_time_ms\": 1000},\n" +
                 "  \"steps\": [\n" +
-                "    {\"name\": \"string\", \"sampler_type\": \"http\", \"method\": \"GET\", \"path\": \"/path\",\n" +
-                "     \"headers\": {}, \"body\": {}, \"query\": {}, \"assert\": {\"status_code\": 200},\n" +
-                "     \"extract\": {\"var\": \"token\", \"json_path\": \"$.token\"}, \"think_time_ms\": number}\n" +
+                "    {\"name\": \"POST_Login\", \"sampler_type\": \"http\", \"method\": \"POST\", \"path\": \"/auth/login\",\n" +
+                "     \"headers\": {\"Content-Type\": \"application/json\"},\n" +
+                "     \"body\": {\"username\": \"${username}\", \"password\": \"${password}\"},\n" +
+                "     \"assert\": {\"status_code\": 200},\n" +
+                "     \"extract\": {\"var\": \"token\", \"json_path\": \"$.access_token\"}},\n" +
+                "    {\"name\": \"GET_Orders\", \"sampler_type\": \"http\", \"method\": \"GET\", \"path\": \"/api/orders\",\n" +
+                "     \"headers\": {\"Authorization\": \"Bearer ${token}\"},\n" +
+                "     \"assert\": {\"status_code\": 200},\n" +
+                "     \"think_time_ms\": 500},\n" +
+                "    {\"name\": \"POST_CreateOrder\", \"sampler_type\": \"http\", \"method\": \"POST\", \"path\": \"/api/orders\",\n" +
+                "     \"headers\": {\"Authorization\": \"Bearer ${token}\", \"Content-Type\": \"application/json\"},\n" +
+                "     \"body\": {\"item\": \"widget\", \"qty\": 1},\n" +
+                "     \"assert\": {\"status_code\": 201},\n" +
+                "     \"extract\": {\"var\": \"orderId\", \"json_path\": \"$.id\"},\n" +
+                "     \"think_time_ms\": 800}\n" +
                 "  ]\n" +
                 "}\n\n" +
+                "ПОДДЕРЖИВАЕМЫЕ ПОЛЯ (включай только нужные):\n" +
+                "- thread_group: name, users, ramp_up_seconds, duration_seconds\n" +
+                "- defaults: base_url, think_time_ms, csv{file, variables[], delimiter}\n" +
+                "- steps[]: name, sampler_type(\"http\"/\"jsr223\"), method, path,\n" +
+                "  headers{}, body{}, query{}, assert{status_code},\n" +
+                "  extract{var, json_path}, think_time_ms,\n" +
+                "  transaction_controller (string — имя группировки),\n" +
+                "  pre_processors[], post_processors[]\n\n" +
                 "Сценарий:\n" + scenario;
     }
 
