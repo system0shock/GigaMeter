@@ -36,7 +36,8 @@ final class PlanDraftGenerator {
                 "3. Для каждого HTTP-шага где ожидается конкретный ответ — добавляй assert.status_code.\n" +
                 "4. POST/PUT/PATCH шаги должны иметь body и заголовок Content-Type в headers.\n" +
                 "5. Если нужны тестовые данные (логины, ID и т.п.) — добавляй defaults.csv.\n" +
-                "6. Defaults при отсутствии явных значений: users=10, ramp_up_seconds=30, duration_seconds=120, think_time_ms=1000.\n\n" +
+                "6. Defaults при отсутствии явных значений: users=10, ramp_up_seconds=30, duration_seconds=120, think_time_ms=1000.\n" +
+                "7. Если шаг sampler_type=jsr223 — поле script ОБЯЗАТЕЛЬНО должно содержать реальный Groovy-код, не пустую строку.\n\n" +
                 "ПРИМЕР — типовой auth + CRUD flow:\n" +
                 "{\n" +
                 "  \"thread_group\": {\"name\": \"API Users\", \"users\": 10, \"ramp_up_seconds\": 30, \"duration_seconds\": 120},\n" +
@@ -56,7 +57,10 @@ final class PlanDraftGenerator {
                 "     \"body\": {\"item\": \"widget\", \"qty\": 1},\n" +
                 "     \"assert\": {\"status_code\": 201},\n" +
                 "     \"extract\": {\"var\": \"orderId\", \"json_path\": \"$.id\"},\n" +
-                "     \"think_time_ms\": 800}\n" +
+                "     \"think_time_ms\": 800},\n" +
+                "    {\"name\": \"JSR_GenerateUUID\", \"sampler_type\": \"jsr223\",\n" +
+                "     \"script_language\": \"groovy\",\n" +
+                "     \"script\": \"vars.put('requestId', UUID.randomUUID().toString())\\nlog.info('Generated requestId: ' + vars.get('requestId'))\"}\n" +
                 "  ]\n" +
                 "}\n\n" +
                 "ПОДДЕРЖИВАЕМЫЕ ПОЛЯ (включай только нужные):\n" +
@@ -66,7 +70,8 @@ final class PlanDraftGenerator {
                 "  headers{}, body{}, query{}, assert{status_code},\n" +
                 "  extract{var, json_path}, think_time_ms,\n" +
                 "  transaction_controller (string — имя группировки),\n" +
-                "  pre_processors[], post_processors[]\n\n" +
+                "  pre_processors[], post_processors[],\n" +
+                "  script_language (для jsr223, default: groovy), script (обязательный код для jsr223)\n\n" +
                 "Сценарий:\n" + scenario;
     }
 
