@@ -19,14 +19,14 @@ class OpenAiServiceMessageAssemblyTest {
                 512,
                 List.of("user-1", "assistant-1", "user-2"));
 
-        assertTrue(params.messages().get(0).isSystem());
-        assertTrue(params.messages().get(1).isUser());
-        assertTrue(params.messages().get(2).isAssistant());
-        assertTrue(params.messages().get(3).isUser());
+        assertSystemMessage(params, 0, "demo-system");
+        assertUserMessage(params, 1, "user-1");
+        assertAssistantMessage(params, 2, "assistant-1");
+        assertUserMessage(params, 3, "user-2");
     }
 
     @Test
-    void preservesAssistantParityAfterHistoryIsTrimmed() {
+    void trimsHistoryOnUserTurnInsteadOfKeepingOrphanedAssistantReply() {
         ChatCompletionCreateParams params = OpenAiService.buildParamsForTest(
                 "demo-system",
                 "gpt-4o",
@@ -45,18 +45,17 @@ class OpenAiServiceMessageAssemblyTest {
                         "assistant-4",
                         "user-5"));
 
-        assertEquals(11, params.messages().size());
-        assertTrue(params.messages().get(0).isSystem());
-        assertTrue(params.messages().get(1).isAssistant());
-        assertTrue(params.messages().get(2).isUser());
-        assertTrue(params.messages().get(3).isAssistant());
-        assertTrue(params.messages().get(4).isUser());
-        assertTrue(params.messages().get(5).isAssistant());
-        assertTrue(params.messages().get(6).isUser());
-        assertTrue(params.messages().get(7).isAssistant());
-        assertTrue(params.messages().get(8).isUser());
-        assertTrue(params.messages().get(9).isAssistant());
-        assertTrue(params.messages().get(10).isUser());
+        assertEquals(10, params.messages().size());
+        assertSystemMessage(params, 0, "demo-system");
+        assertUserMessage(params, 1, "user-1");
+        assertAssistantMessage(params, 2, "assistant-1");
+        assertUserMessage(params, 3, "user-2");
+        assertAssistantMessage(params, 4, "assistant-2");
+        assertUserMessage(params, 5, "user-3");
+        assertAssistantMessage(params, 6, "assistant-3");
+        assertUserMessage(params, 7, "user-4");
+        assertAssistantMessage(params, 8, "assistant-4");
+        assertUserMessage(params, 9, "user-5");
     }
 
     @Test
@@ -69,8 +68,22 @@ class OpenAiServiceMessageAssemblyTest {
                 List.of("", "   "));
 
         assertEquals(2, params.messages().size());
-        assertTrue(params.messages().get(0).isSystem());
-        assertTrue(params.messages().get(1).isUser());
-        assertTrue(params.messages().get(1).toString().contains("Hello, how can you help me with JMeter?"));
+        assertSystemMessage(params, 0, "demo-system");
+        assertUserMessage(params, 1, "Hello, how can you help me with JMeter?");
+    }
+
+    private static void assertSystemMessage(ChatCompletionCreateParams params, int index, String expectedContent) {
+        assertTrue(params.messages().get(index).isSystem());
+        assertEquals(expectedContent, params.messages().get(index).asSystem().content().asText());
+    }
+
+    private static void assertUserMessage(ChatCompletionCreateParams params, int index, String expectedContent) {
+        assertTrue(params.messages().get(index).isUser());
+        assertEquals(expectedContent, params.messages().get(index).asUser().content().asText());
+    }
+
+    private static void assertAssistantMessage(ChatCompletionCreateParams params, int index, String expectedContent) {
+        assertTrue(params.messages().get(index).isAssistant());
+        assertEquals(expectedContent, params.messages().get(index).asAssistant().content().orElseThrow().asText());
     }
 }
