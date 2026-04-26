@@ -78,12 +78,18 @@ public class PlanCommandHandler {
             return previewRenderer.render(planJson, request.getScenario());
         } catch (PlanDraftException e) {
             log.warn("Failed to build plan preview: {}", e.getCategory(), e);
+            clearPlanDraft();
             return structuredPlanFailure(e.getCategory());
         } catch (Exception e) {
             log.error("Failed to build plan preview", e);
+            clearPlanDraft();
             return PLAN_PREVIEW_FAILURE_PREFIX
                     + "Произошла внутренняя ошибка. Повторите команду ещё раз.";
         }
+    }
+
+    private void clearPlanDraft() {
+        PlanDraftStore.save(null, null);
     }
 
     private String structuredPlanFailure(PlanDraftException.ErrorCategory category) {

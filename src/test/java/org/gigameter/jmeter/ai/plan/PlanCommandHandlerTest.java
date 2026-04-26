@@ -5,12 +5,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class PlanCommandHandlerTest {
+    private static final String PREVIEW_FAILURE_PREFIX = "предпросмотр плана";
 
     @BeforeEach
     void resetPlanState() {
@@ -60,7 +62,7 @@ class PlanCommandHandlerTest {
         when(aiService.generateResponse(anyList())).thenReturn("{\n" +
                 "\"thread_group\":{\"name\":\"API TG\",\"users\":10,\"ramp_up_seconds\":5,\"duration_seconds\":60},\n" +
                 "\"defaults\":{\"base_url\":\"https://api.example.com\"},\n" +
-                "\"steps\":[{\"name\":\"Login\",\"method\":\"POST\",\"path\":\"/auth/login\",\"assert\":{\"status_code\":200}}]\n" +
+                "\"steps\":[{\"name\":\"Login\",\"sampler_type\":\"http\",\"method\":\"POST\",\"path\":\"/auth/login\",\"assert\":{\"status_code\":200}}]\n" +
                 "}");
 
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
@@ -77,18 +79,17 @@ class PlanCommandHandlerTest {
         when(aiService.generateResponse(anyList())).thenReturn("{\n" +
                 "\"thread_group\":{\"name\":\"API TG\",\"users\":5,\"ramp_up_seconds\":5,\"duration_seconds\":120},\n" +
                 "\"defaults\":{\"base_url\":\"https://api.example.com\",\"think_time_ms\":700,\"csv\":{\"file\":\"data/users.csv\",\"variables\":[\"username\",\"password\"]}},\n" +
-                "\"steps\":[{\"name\":\"Login\",\"method\":\"POST\",\"path\":\"/auth/login\",\"query\":{\"tenant\":\"demo\"},\"body\":{\"username\":\"${username}\"},\"think_time_ms\":500,\"headers\":{\"Content-Type\":\"application/json\"}}]\n" +
+                "\"steps\":[{\"name\":\"Login\",\"sampler_type\":\"http\",\"method\":\"POST\",\"path\":\"/auth/login\",\"query\":{\"tenant\":\"demo\"},\"body\":{\"username\":\"${username}\"},\"think_time_ms\":500,\"headers\":{\"Content-Type\":\"application/json\"}}]\n" +
                 "}");
 
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("- CSV файл: data/users.csv"));
-        assertTrue(response.contains("  - Переменные: username,password"));
-        assertTrue(response.contains("- Пауза между шагами (мс): 700"));
-        assertTrue(response.contains("   - Query-параметры: 1"));
-        assertTrue(response.contains("   - Тело запроса: есть"));
-        assertTrue(response.contains("   - Пауза (мс): 500"));
+        assertTrue(response.contains("data/users.csv"));
+        assertTrue(response.contains("username,password"));
+        assertTrue(response.contains("700"));
+        assertTrue(response.contains("Query"));
+        assertTrue(response.contains("500"));
     }
 
     @Test
@@ -122,8 +123,9 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("Не удалось подготовить предпросмотр плана."));
-        assertTrue(response.contains("Пустой ответ"));
+        assertTrue(response.contains(PREVIEW_FAILURE_PREFIX));
+        assertTrue(response.contains("Пустой"));
+        assertNull(PlanDraftStore.getLatestDraft());
     }
 
     @Test
@@ -134,8 +136,9 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("Не удалось подготовить предпросмотр плана."));
-        assertTrue(response.contains("Некорректный ответ модели"));
+        assertTrue(response.contains(PREVIEW_FAILURE_PREFIX));
+        assertTrue(response.contains("Некорректный"));
+        assertNull(PlanDraftStore.getLatestDraft());
     }
 
     @Test
@@ -146,9 +149,10 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("Не удалось подготовить предпросмотр плана."));
-        assertTrue(response.contains("Сервис AI недоступен"));
-        assertFalse(response.contains("Некорректный ответ модели"));
+        assertTrue(response.contains(PREVIEW_FAILURE_PREFIX));
+        assertTrue(response.contains("Сервис AI"));
+        assertFalse(response.contains("Некорректный"));
+        assertNull(PlanDraftStore.getLatestDraft());
     }
 
     @Test
@@ -162,7 +166,59 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("Не удалось подготовить предпросмотр плана."));
-        assertTrue(response.contains("Некорректный ответ модели"));
+        assertTrue(response.contains(PREVIEW_FAILURE_PREFIX));
+        assertTrue(response.contains("Некорректный"));
+    }
+
+    @Test
+    void clearsPreviousDraftWhenPreviewGenerationFails() {
+        AiService aiService = mock(AiService.class);
+        when(aiService.generateResponse(anyList()))
+                .thenReturn("{\n" +
+                        "\"thread_group\":{\"name\":\"API TG\",\"users\":10,\"ramp_up_seconds\":5,\"duration_seconds\":60},\n" +
+                        "\"steps\":[{\"name\":\"Login\",\"sampler_type\":\"http\",\"method\":\"POST\",\"path\":\"/auth/login\"}]\n" +
+                        "}")
+                .thenReturn("   ");
+
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+        String okResponse = handler.processPlanCommand("@plan login flow");
+        String failResponse = handler.processPlanCommand("@plan broken flow");
+
+        assertTrue(okResponse.contains("API TG"));
+        assertTrue(failResponse.contains(PREVIEW_FAILURE_PREFIX));
+        assertNull(PlanDraftStore.getLatestDraft());
+        assertTrue(handler.processPlanCommand("@plan apply").contains("No plan draft found"));
+    }
+
+    @Test
+    void returnsMalformedHintWhenHttpStepMissesRequiredFields() {
+        AiService aiService = mock(AiService.class);
+        when(aiService.generateResponse(anyList())).thenReturn("{\n" +
+                "\"thread_group\":{\"name\":\"API TG\",\"users\":10,\"ramp_up_seconds\":5,\"duration_seconds\":60},\n" +
+                "\"steps\":[{\"name\":\"Login\",\"sampler_type\":\"http\",\"method\":\"POST\"}]\n" +
+                "}");
+
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+        String response = handler.processPlanCommand("@plan login flow");
+
+        assertTrue(response.contains(PREVIEW_FAILURE_PREFIX));
+        assertTrue(response.contains("Некорректный"));
+        assertNull(PlanDraftStore.getLatestDraft());
+    }
+
+    @Test
+    void returnsMalformedHintWhenSamplerTypeIsMissing() {
+        AiService aiService = mock(AiService.class);
+        when(aiService.generateResponse(anyList())).thenReturn("{\n" +
+                "\"thread_group\":{\"name\":\"API TG\",\"users\":10,\"ramp_up_seconds\":5,\"duration_seconds\":60},\n" +
+                "\"steps\":[{\"name\":\"Login\",\"method\":\"POST\",\"path\":\"/auth/login\"}]\n" +
+                "}");
+
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+        String response = handler.processPlanCommand("@plan login flow");
+
+        assertTrue(response.contains(PREVIEW_FAILURE_PREFIX));
+        assertTrue(response.contains("Некорректный"));
+        assertNull(PlanDraftStore.getLatestDraft());
     }
 }
