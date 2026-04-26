@@ -159,75 +159,16 @@ public class OpenAiService implements AiService {
                 limitedConversation = conversation.subList(conversation.size() - maxHistorySize, conversation.size());
                 log.info("Limiting conversation to last {} messages", limitedConversation.size());
             }
-
-            // Create a fresh builder for parameters following the working example
-            ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
-                    .maxCompletionTokens(maxTokens)
-                    .temperature(temperature)
-                    .model(currentModelId);
-
-            // Always include the system prompt
-            paramsBuilder.addSystemMessage(systemPrompt);
-            log.info("Including system prompt in request (length: {})", systemPrompt.length());
-
-            // Debug log the conversation array
-            log.info("Conversation size: {}", conversation.size());
-
-            // Limit conversation history to last maxHistorySize messages to avoid token
-            // limits
-            List<String> limitedHistory;
-            if (conversation.size() > maxHistorySize) {
-                limitedHistory = conversation.subList(conversation.size() - maxHistorySize, conversation.size());
-                log.info("Limiting conversation to last {} messages", limitedHistory.size());
-            } else {
-                limitedHistory = new java.util.ArrayList<>(conversation);
-            }
-
-            // Log the conversation for debugging
-            for (int i = 0; i < limitedHistory.size(); i++) {
-                log.info("Message[{}]: {}", i, limitedHistory.get(i));
-            }
-
-            if (limitedHistory.isEmpty()) {
-                log.warn("Conversation is empty, using default message");
-                paramsBuilder.addUserMessage("Hello, how can you help me with JMeter?");
-            } else {
-                // Process the conversation history
-                // We'll assume the conversation alternates between user and assistant messages
-                // with the first message being from the user
-                for (int i = 0; i < limitedHistory.size(); i++) {
-                    String msg = limitedHistory.get(i);
-                    if (msg == null || msg.isEmpty()) {
-                        log.warn("Skipping empty message at position {}", i);
-                        continue;
-                    }
-
-                    if (i % 2 == 0) {
-                        // User messages (even indices: 0, 2, 4...)
-                        paramsBuilder.addUserMessage(msg);
-                        log.info("Added user message {}: {}", i,
-                                msg.substring(0, Math.min(50, msg.length())));
-                    } else {
-                        // Assistant messages (odd indices: 1, 3, 5...)
-                        // For OpenAI Java SDK 0.31.0, we need to use a different approach
-                        // Since we can't directly add assistant messages, we'll add them as system
-                        // messages
-                        // This is a workaround and not ideal, but it should work
-                        paramsBuilder.addSystemMessage("Assistant: " + msg);
-                        log.info("Added assistant message as system message {}: {}", i,
-                                msg.substring(0, Math.min(50, msg.length())));
-                    }
-                }
-            }
-
-            // Build the parameters and create the chat completion
-            ChatCompletionCreateParams params = paramsBuilder.build();
+            ChatCompletionCreateParams params = buildParams(
+                    systemPrompt,
+                    currentModelId,
+                    temperature,
+                    maxTokens,
+                    limitedConversation,
+                    maxHistorySize);
             log.info("Request parameters: maxTokens={}, temperature={}, model={}, messagesCount={}",
                     params.maxCompletionTokens(), params.temperature(), params.model(),
-                    conversation.size());
-
-            // Debug log the messages in the request
-            log.info("Request messages: {}", params.messages());
+                    params.messages().size());
 
             ChatCompletion chatCompletion = client.chat().completions().create(params);
 
@@ -371,6 +312,49 @@ public class OpenAiService implements AiService {
 
     public String getName() {
         return "OpenAI";
+    }
+
+    static ChatCompletionCreateParams buildParamsForTest(
+            String systemPrompt,
+            String model,
+            float temperature,
+            long maxTokens,
+            List<String> conversation) {
+        return buildParams(systemPrompt, model, temperature, maxTokens, conversation, 10);
+    }
+
+    private static ChatCompletionCreateParams buildParams(
+            String systemPrompt,
+            String model,
+            float temperature,
+            long maxTokens,
+            List<String> conversation,
+            int maxHistorySize) {
+        ChatCompletionCreateParams.Builder paramsBuilder = ChatCompletionCreateParams.builder()
+                .model(model)
+                .temperature(temperature)
+                .maxCompletionTokens(maxTokens)
+                .addSystemMessage(systemPrompt);
+
+        List<String> limitedHistory = conversation.size() > maxHistorySize
+                ? conversation.subList(conversation.size() - maxHistorySize, conversation.size())
+                : conversation;
+
+        for (int i = 0; i < limitedHistory.size(); i++) {
+            String msg = limitedHistory.get(i);
+            if (msg == null || msg.isBlank()) {
+                continue;
+            }
+            if (i % 2 == 0) {
+                paramsBuilder.addUserMessage(msg);
+            } else {
+                paramsBuilder.addMessage(
+                        com.openai.models.ChatCompletionAssistantMessageParam.builder()
+                                .content(msg)
+                                .build());
+            }
+        }
+        return paramsBuilder.build();
     }
 }
 
