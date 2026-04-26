@@ -4,20 +4,20 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.JMeterGUIComponent;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
-import org.apache.jmeter.testelement.property.JMeterProperty;
-import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.gigameter.jmeter.ai.service.AiService;
+import org.gigameter.jmeter.ai.utils.JMeterPlanSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A utility class for renaming JMeter test plan elements using AI suggestions.
@@ -102,23 +102,8 @@ public class ElementRenamer {
                 if (node.getTestElement().getClass().getSimpleName().contains("ThreadGroup")) {
                     // For Thread Groups, collect the Thread Group itself and all its children
                     log.info("Processing Thread Group: " + node.getName());
-                    // First add the Thread Group itself
-                    ElementInfo info = new ElementInfo();
-                    info.node = node;
-                    info.element = node.getTestElement();
-                    info.name = node.getName();
-                    info.type = node.getTestElement().getClass().getSimpleName();
-                    info.isDisabled = !node.getTestElement().isEnabled();
-                    info.properties = extractRelevantProperties(node.getTestElement());
-                    elementsToRename.add(info);
-                    log.info("Added Thread Group to rename: " + node.getName());
-                    
-                    // Then collect all its children
-                    Enumeration<?> children = node.children();
-                    while (children.hasMoreElements()) {
-                        JMeterTreeNode childNode = (JMeterTreeNode) children.nextElement();
-                        collectElementsToRename(childNode, elementsToRename, true);
-                    }
+                    // Collect Thread Group and all its children iteratively
+                    collectElementsToRename(node, elementsToRename, true);
                 } else {
                     // For non-Thread Group elements, just collect the element itself
                     collectElementsToRename(node, elementsToRename, false);
@@ -153,187 +138,142 @@ public class ElementRenamer {
         return "Переименовано элементов: " + renamedCount + " из " + elementsToRename.size() + ".";
     }
     
-    /**
-     * Recursively collects elements to be renamed from the test plan.
-     * 
-     * @param node The current node to process
-     * @param elementsToRename The list to populate with elements to rename
-     * @param processChildren Whether to process child nodes recursively
-     */
-    private void collectElementsToRename(JMeterTreeNode node, List<ElementInfo> elementsToRename, boolean processChildren) {
-        TestElement element = node.getTestElement();
-        String nodeName = node.getName();
-        String elementType = element.getClass().getSimpleName();
-        
-        // Always include the node if it's not the Test Plan
-        // (we want to include Thread Groups and all other elements)
-        if (!nodeName.equals("Test Plan")) {
-            ElementInfo info = new ElementInfo();
-            info.node = node;
-            info.element = element;
-            info.name = nodeName;
-            info.type = elementType;
-            info.isDisabled = !element.isEnabled();
-            info.properties = extractRelevantProperties(element);
-            
-            elementsToRename.add(info);
-            log.info("Added element to rename: " + nodeName + " (Type: " + elementType + ")");
-        }
-        
-        // Process child nodes only if requested
-        if (processChildren) {
-            Enumeration<?> children = node.children();
-            while (children.hasMoreElements()) {
-                JMeterTreeNode childNode = (JMeterTreeNode) children.nextElement();
-                collectElementsToRename(childNode, elementsToRename, true);
+    private static final String[] LINT_PROP_KEYS = {
+        "HTTPSampler.method", "HTTPSampler.path", "HTTPSampler.domain",
+        "scriptLanguage", "script"
+    };
+
+    private void collectElementsToRename(JMeterTreeNode startNode, List<ElementInfo> result, boolean processChildren) {
+        // Iterative DFS to avoid stack overflow on deep plans
+        Deque<JMeterTreeNode> stack = new ArrayDeque<>();
+        stack.push(startNode);
+
+        while (!stack.isEmpty()) {
+            JMeterTreeNode node = stack.pop();
+            TestElement element = node.getTestElement();
+            if (element == null) continue;
+
+            String nodeName = node.getName();
+            if (!"Test Plan".equals(nodeName)) {
+                ElementInfo info = new ElementInfo();
+                info.node = node;
+                info.element = element;
+                info.name = nodeName;
+                info.type = element.getClass().getSimpleName();
+                info.isDisabled = !element.isEnabled();
+                info.properties = extractKeyProps(element);
+                result.add(info);
+                log.debug("Collected for lint: {} ({})", nodeName, info.type);
+            }
+
+            if (processChildren || node == startNode) {
+                // Push children in reverse order so first child is processed first
+                Enumeration<?> children = node.children();
+                List<JMeterTreeNode> childList = new ArrayList<>();
+                while (children.hasMoreElements()) {
+                    Object c = children.nextElement();
+                    if (c instanceof JMeterTreeNode) childList.add((JMeterTreeNode) c);
+                }
+                for (int i = childList.size() - 1; i >= 0; i--) {
+                    stack.push(childList.get(i));
+                }
+                // After the start node, always recurse if processChildren was true
+                if (!processChildren) break; // only the root node, no children
             }
         }
     }
-    
-    /**
-     * Extracts relevant properties from a test element for AI analysis.
-     * 
-     * @param element The test element to extract properties from
-     * @return A string containing relevant property information
-     */
-    private String extractRelevantProperties(TestElement element) {
-        StringBuilder properties = new StringBuilder();
-        
-        PropertyIterator iter = element.propertyIterator();
-        while (iter.hasNext()) {
-            JMeterProperty prop = iter.next();
-            String name = prop.getName();
-            String value = prop.getStringValue();
-            
-            // Filter out properties that are likely to be useful for naming
-            if (isRelevantProperty(name, value)) {
-                properties.append(name).append(": ").append(value).append("\n");
-            }
+
+    private String extractKeyProps(TestElement element) {
+        StringBuilder sb = new StringBuilder();
+        for (String key : LINT_PROP_KEYS) {
+            try {
+                String val = element.getPropertyAsString(key);
+                if (val != null && !val.trim().isEmpty()) {
+                    if (val.length() > 80) val = val.substring(0, 80) + "...";
+                    sb.append(key).append(": ").append(val).append("\n");
+                }
+            } catch (Exception ignored) {}
         }
-        
-        return properties.toString();
+        return sb.toString();
     }
     
+    private static final int BATCH_SIZE = 20;
+
     /**
-     * Determines if a property is relevant for naming purposes.
-     * 
-     * @param name The property name
-     * @param value The property value
-     * @return True if the property is relevant, false otherwise
-     */
-    private boolean isRelevantProperty(String name, String value) {
-        // Skip empty values
-        if (value == null || value.trim().isEmpty()) {
-            return false;
-        }
-        
-        // Skip technical properties that don't provide semantic meaning
-        String lowerName = name.toLowerCase();
-        if (lowerName.contains("enabled") || 
-            lowerName.contains("guiclass") || 
-            lowerName.contains("testclass") || 
-            lowerName.contains("testname") ||
-            lowerName.contains("testplan") ||
-            lowerName.equals("name")) {
-            return false;
-        }
-        
-        // Include properties that are likely to be useful for naming
-        return lowerName.contains("path") ||
-               lowerName.contains("url") ||
-               lowerName.contains("domain") ||
-               lowerName.contains("port") ||
-               lowerName.contains("method") ||
-               lowerName.contains("query") ||
-               lowerName.contains("resource") ||
-               lowerName.contains("endpoint") ||
-               lowerName.contains("script") ||
-               lowerName.contains("command") ||
-               lowerName.contains("statement") ||
-               lowerName.contains("expression") ||
-               lowerName.contains("pattern") ||
-               lowerName.contains("assertion") ||
-               lowerName.contains("variable");
-    }
-    
-    /**
-     * Gets AI suggestions for renaming elements.
-     * 
-     * @param elementsToRename The list of elements to rename
-     * @param command The user's command for how to rename elements
-     * @return AI-generated suggestions for renaming
+     * Gets AI rename suggestions for all elements, using batched requests if needed.
+     * Returns combined JSON string of all renames with globally consistent indices.
      */
     private String getAiSuggestions(List<ElementInfo> elementsToRename, String command) {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("Help the user to rename the elements in the test plan. Here are the elements details. Give me meaningful names for the elements.\n");
-        prompt.append("e.g. HTTP_PostLogin, HTTP_Request_To_Authenticate_Users_And_Get_Token, TG_GenerateOrders\n");
-        
-        // Add user's specific naming style instructions if provided
-        if (command != null && !command.equalsIgnoreCase("rename")) {
-            prompt.append("User has requested the following naming style: " + command + "\n");
-            
-            // Check if the user has specific instructions about numbering or beginning format
-            boolean hasNumberingInstructions = command.toLowerCase().contains("number") || 
-                                             command.toLowerCase().contains("sequenc") || 
-                                             command.toLowerCase().contains("order");
-                                             
-            boolean hasBeginningInstructions = command.toLowerCase().contains("beginning") || 
-                                             command.toLowerCase().contains("start") || 
-                                             command.toLowerCase().contains("prefix");
-            
-            // Check for the specific combined case of camel case with numbers at the beginning
-            boolean isCamelCase = command.toLowerCase().contains("camel case") || command.toLowerCase().contains("camelcase");
-            boolean isNumbersAtBeginning = command.toLowerCase().contains("add the numbers in the beginning") || 
-                                         command.toLowerCase().contains("numbers in the beginning") || 
-                                         command.toLowerCase().contains("numbers at the beginning");
-            
-            if (isCamelCase && isNumbersAtBeginning) {
-                prompt.append("\nIMPORTANT: The user wants camelCase with numbers at the BEGINNING of each name. " +
-                              "For example: '10httpLogin', '20getUsers', '30verifyOrder'. " +
-                              "Do NOT use underscores or any other format. The first part should be the number, " +
-                              "followed immediately by the camelCase name (first word lowercase, subsequent words capitalized).\n");
-            }
-            // Special case for "add the numbers in the beginning" only
-            else if (isNumbersAtBeginning) {
-                prompt.append("\nIMPORTANT: The user wants numbers at the BEGINNING of each name. For example, instead of 'httpLogin' use '10HttpLogin', '20HttpGetUsers', etc.\n");
-            } 
-            // Only add the default sequencing suggestion if the user hasn't specified numbering or beginning preferences
-            else if (!hasNumberingInstructions && !hasBeginningInstructions) {
-                prompt.append("\nIf possible, sequentially rename the elements in the test plan. e.g. HTTP_10_Login, HTTP_20_Request_To_Authenticate_Users_And_Get_Token, TG_10_GenerateOrders, TG_20_Verify_Orders\n");
-            }
-            
-            // Special case for camel case (only if not already handled in the combined case)
-            if (isCamelCase && !isNumbersAtBeginning) {
-                prompt.append("\nFor camelCase, the first letter should be lowercase, and the first letter of each subsequent word should be uppercase. For example: 'httpRequest', 'getUsers', 'verifyLogin'.\n");
-            }
-        } else {
-            prompt.append("Use the snake_case by default, unless the user specifies otherwise.\n");
-            prompt.append("\nIf possible, sequentially rename the elements in the test plan. e.g. HTTP_10_Login, HTTP_20_Request_To_Authenticate_Users_And_Get_Token, TG_10_GenerateOrders, TG_20_Verify_Orders\n");
+        if (elementsToRename.isEmpty()) return null;
+
+        if (elementsToRename.size() <= BATCH_SIZE) {
+            return askAiForBatch(elementsToRename, 0, command);
         }
-        
-        prompt.append("\n");
-        prompt.append("Elements to rename:\n\n");
-        
-        AtomicInteger counter = new AtomicInteger(1);
-        elementsToRename.forEach(info -> {
-            prompt.append("Element ").append(counter.getAndIncrement()).append(":\n");
-            prompt.append("Type: ").append(info.type).append("\n");
-            prompt.append("Current Name: ").append(info.name).append("\n");
-            prompt.append("Is Disabled: ").append(info.isDisabled).append("\n");
+
+        // Batch mode: collect all partial responses and merge into one JSON
+        StringBuilder merged = new StringBuilder("{\"renames\":[");
+        boolean firstEntry = true;
+        int batchStart = 0;
+        while (batchStart < elementsToRename.size()) {
+            int batchEnd = Math.min(batchStart + BATCH_SIZE, elementsToRename.size());
+            List<ElementInfo> batch = elementsToRename.subList(batchStart, batchEnd);
+            String batchResponse = askAiForBatch(batch, batchStart, command);
+            if (batchResponse == null) {
+                batchStart = batchEnd;
+                continue;
+            }
+            JsonNode renamesNode = parseRenamesJson(batchResponse);
+            if (renamesNode != null) {
+                for (JsonNode entry : renamesNode) {
+                    if (!firstEntry) merged.append(",");
+                    firstEntry = false;
+                    merged.append(entry.toString());
+                }
+            }
+            batchStart = batchEnd;
+        }
+        merged.append("]}");
+        return merged.toString();
+    }
+
+    private String askAiForBatch(List<ElementInfo> batch, int indexOffset, String command) {
+        int total = batch.size();
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("Переименуй ВСЕ ").append(total).append(" элементов JMeter тест-плана.\n");
+        prompt.append("Ты ОБЯЗАН вернуть ровно ").append(total)
+              .append(" записей в массиве renames — по одной на каждый элемент, без пропусков.\n\n");
+
+        if (command != null && !command.equalsIgnoreCase("rename")) {
+            prompt.append("Стиль именования: ").append(command).append("\n");
+        } else {
+            prompt.append("Стиль именования: snake_case с порядковым префиксом.\n");
+            prompt.append("Пример: HTTP_10_Login, HTTP_20_GetOrders, TG_10_Checkout\n");
+        }
+
+        prompt.append("\nЭлементы:\n");
+        for (int i = 0; i < batch.size(); i++) {
+            ElementInfo info = batch.get(i);
+            int globalIndex = indexOffset + i + 1;
+            prompt.append("index=").append(globalIndex)
+                  .append(" type=").append(info.type)
+                  .append(" name=\"").append(info.name).append("\"");
             if (!info.properties.isEmpty()) {
-                prompt.append("Properties:\n").append(info.properties).append("\n");
+                // Include only the first line of properties to keep prompt tight
+                String firstProp = info.properties.split("\n")[0];
+                prompt.append(" props=[").append(firstProp).append("]");
             }
             prompt.append("\n");
-        });
-        
-        prompt.append("Respond with ONLY valid JSON, no explanations. Format:\n");
-        prompt.append("{\"renames\":[{\"index\":1,\"name\":\"NewName\"},{\"index\":2,\"name\":\"NewName2\"}]}\n");
-        prompt.append("Rules: names must be meaningful and reflect the element's purpose. Do NOT add 'Disabled_' prefix.\n");
-        
+        }
+
+        prompt.append("\nОтвет — только JSON без объяснений:\n");
+        prompt.append("{\"renames\":[{\"index\":1,\"name\":\"NewName\"},...,{\"index\":")
+              .append(indexOffset + total).append(",\"name\":\"NewNameN\"}]}\n");
+        prompt.append("Имена: осмысленные, отражающие назначение элемента. Без префикса 'Disabled_'.\n");
+
         try {
             return aiService.generateResponse(java.util.Collections.singletonList(prompt.toString()));
         } catch (Exception e) {
-            log.error("Error getting AI suggestions", e);
+            log.error("Error getting AI rename suggestions for batch starting at {}", indexOffset, e);
             return null;
         }
     }
