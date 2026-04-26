@@ -162,6 +162,12 @@ public class PlanCommandHandler {
         PlanApplyUndoStore.save(tgNode);
         configureThreadGroup(tgNode, threadGroup);
 
+        // Always add HTTP Cookie Manager — required for session-based flows
+        selectNode(tgNode);
+        if (JMeterElementManager.addElement("cookiemanager", "HTTP Cookie Manager (AI Plan)")) {
+            createdCount++;
+        }
+
         JsonNode defaults = draft.path("defaults");
         String baseUrl = defaults.path("base_url").asText("");
         int defaultThinkTimeMs = numberOrDefault(defaults.path("think_time_ms"), 0);
