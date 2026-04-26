@@ -149,18 +149,15 @@ public class OpenAiService implements AiService {
                 log.info("Using previously initialized conversation with system prompt");
             }
 
-            // Limit conversation history to last 10 messages to avoid token limits
-            List<String> limitedConversation = conversation;
             if (conversation.size() > maxHistorySize) {
-                limitedConversation = conversation.subList(conversation.size() - maxHistorySize, conversation.size());
-                log.info("Limiting conversation to last {} messages", limitedConversation.size());
+                log.info("Limiting conversation to last {} messages", maxHistorySize);
             }
             ChatCompletionCreateParams params = buildParams(
                     systemPrompt,
                     currentModelId,
                     temperature,
                     maxTokens,
-                    limitedConversation,
+                    conversation,
                     maxHistorySize);
             log.info("Request parameters: maxTokens={}, temperature={}, model={}, messagesCount={}",
                     params.maxCompletionTokens(), params.temperature(), params.model(),
@@ -335,16 +332,15 @@ public class OpenAiService implements AiService {
                 .maxCompletionTokens(maxTokens)
                 .addSystemMessage(systemPrompt);
 
-        List<String> limitedHistory = conversation.size() > maxHistorySize
-                ? conversation.subList(conversation.size() - maxHistorySize, conversation.size())
-                : conversation;
+        int historyStart = Math.max(conversation.size() - maxHistorySize, 0);
+        List<String> limitedHistory = conversation.subList(historyStart, conversation.size());
 
         for (int i = 0; i < limitedHistory.size(); i++) {
             String msg = limitedHistory.get(i);
             if (msg == null || msg.isBlank()) {
                 continue;
             }
-            if (i % 2 == 0) {
+            if ((historyStart + i) % 2 == 0) {
                 paramsBuilder.addUserMessage(msg);
             } else {
                 paramsBuilder.addMessage(
