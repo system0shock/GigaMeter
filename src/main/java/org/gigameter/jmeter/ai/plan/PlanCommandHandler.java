@@ -16,8 +16,10 @@ import java.lang.reflect.Method;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -483,79 +485,108 @@ public class PlanCommandHandler {
         }
     }
 
-    private void collectFlowAndStats(JMeterTreeNode node, PlanAnalysisStats stats, int depth) {
-        if (node == null || stats == null) {
+    private static final int MAX_NODES_ANALYZE = 500;
+
+    private void collectFlowAndStats(JMeterTreeNode rootNode, PlanAnalysisStats stats, int startDepth) {
+        if (rootNode == null || stats == null) {
             return;
         }
 
-        TestElement element = node.getTestElement();
-        if (element == null) {
-            return;
-        }
+        // Iterative traversal: stack holds (node, depth) pairs
+        Deque<int[]> depthStack = new ArrayDeque<>();
+        Deque<JMeterTreeNode> nodeStack = new ArrayDeque<>();
+
+        nodeStack.push(rootNode);
+        depthStack.push(new int[]{startDepth});
+
+        int visitedNodes = 0;
+
+        while (!nodeStack.isEmpty()) {
+            JMeterTreeNode node = nodeStack.pop();
+            int depth = depthStack.pop()[0];
+
+            if (++visitedNodes > MAX_NODES_ANALYZE) {
+                stats.flowLines.add("... (план обрезан, превышен лимит " + MAX_NODES_ANALYZE + " элементов)");
+                break;
+            }
+
+            TestElement element = node.getTestElement();
+            if (element == null) {
+                continue;
+            }
 
             String className = element.getClass().getSimpleName();
-        if (className.contains("ThreadGroup")) {
-            for (int i = 0; i < node.getChildCount(); i++) {
+            int nextDepth = depth;
+
+            if (className.contains("ThreadGroup")) {
+                // Don't count TG itself, just queue its children at same depth
+                for (int i = node.getChildCount() - 1; i >= 0; i--) {
+                    Object child = node.getChildAt(i);
+                    if (child instanceof JMeterTreeNode) {
+                        nodeStack.push((JMeterTreeNode) child);
+                        depthStack.push(new int[]{depth});
+                    }
+                }
+                continue;
+            }
+
+            if (isController(className)) {
+                stats.controllers++;
+                stats.controllersByType.put(className, stats.controllersByType.getOrDefault(className, 0) + 1);
+                String desc = describeController(node, element, className, stats);
+                stats.flowLines.add(indent(depth) + "- " + desc);
+                nextDepth = depth + 1;
+            } else if (className.contains("HTTPSampler")) {
+                stats.httpSamplers++;
+                String method = safeUpper(safePropertyString(element, "HTTPSampler.method", "GET"));
+                String path = safePropertyString(element, "HTTPSampler.path", "/");
+                stats.httpMethods.add(method);
+                stats.httpPaths.add(path);
+                collectEntitiesFromPath(path, stats.entities);
+                stats.flowLines.add(indent(depth) + "- HTTP: " + node.getName() + " (" + method + " " + path + ")");
+            } else if (className.contains("JSR223Sampler")) {
+                stats.jsr223Samplers++;
+                String language = safePropertyString(element, "scriptLanguage", "groovy");
+                stats.flowLines.add(indent(depth) + "- JSR223: " + node.getName() + " (" + language + ")");
+            } else if (className.contains("Sampler")) {
+                stats.otherSamplers++;
+                stats.flowLines.add(indent(depth) + "- Sampler: " + node.getName() + " (" + className + ")");
+            }
+
+            if (className.contains("Assertion")) stats.assertions++;
+            if (className.contains("PreProcessor")) stats.preProcessors++;
+            if (className.contains("PostProcessor")) {
+                stats.postProcessors++;
+                collectEntitiesFromVariableNames(
+                        element.getPropertyAsString("JSONPostProcessor.referenceNames"), stats.entities);
+            }
+            if (className.contains("Timer")) stats.timers++;
+            if (className.contains("Config")) stats.configElements++;
+            if (className.contains("Visualizer") || className.contains("ResultCollector")
+                    || className.contains("Listener")) stats.listeners++;
+            if (className.contains("CSVDataSet")) {
+                collectEntitiesFromVariableNames(element.getPropertyAsString("variableNames"), stats.entities);
+            }
+
+            // Push children in reverse order so first child is processed first
+            for (int i = node.getChildCount() - 1; i >= 0; i--) {
                 Object child = node.getChildAt(i);
                 if (child instanceof JMeterTreeNode) {
-                    collectFlowAndStats((JMeterTreeNode) child, stats, depth);
+                    nodeStack.push((JMeterTreeNode) child);
+                    depthStack.push(new int[]{nextDepth});
                 }
             }
-            return;
         }
+    }
 
-        int nextDepth = depth;
-        if (isController(className)) {
-            stats.controllers++;
-            stats.controllersByType.put(className, stats.controllersByType.getOrDefault(className, 0) + 1);
-            String controllerDescription = describeController(node, element, className, stats);
-            stats.flowLines.add(indent(depth) + "- " + controllerDescription);
-            nextDepth = depth + 1;
-        } else if (className.contains("HTTPSampler")) {
-            stats.httpSamplers++;
-            String method = safeUpper(textOrDefault(element.getProperty("HTTPSampler.method").getStringValue(), "GET"));
-            String path = textOrDefault(element.getProperty("HTTPSampler.path").getStringValue(), "/");
-            stats.httpMethods.add(method);
-            stats.httpPaths.add(path);
-            collectEntitiesFromPath(path, stats.entities);
-            stats.flowLines.add(indent(depth) + "- HTTP: " + node.getName() + " (" + method + " " + path + ")");
-        } else if (className.contains("JSR223Sampler")) {
-            stats.jsr223Samplers++;
-            String language = textOrDefault(element.getProperty("scriptLanguage").getStringValue(), "groovy");
-            stats.flowLines.add(indent(depth) + "- JSR223: " + node.getName() + " (" + language + ")");
-        } else if (className.contains("Sampler")) {
-            stats.otherSamplers++;
-            stats.flowLines.add(indent(depth) + "- Sampler: " + node.getName() + " (" + className + ")");
-        }
-
-        if (className.contains("Assertion")) {
-            stats.assertions++;
-        }
-        if (className.contains("PreProcessor")) {
-            stats.preProcessors++;
-        }
-        if (className.contains("PostProcessor")) {
-            stats.postProcessors++;
-            collectEntitiesFromVariableNames(element.getPropertyAsString("JSONPostProcessor.referenceNames"), stats.entities);
-        }
-        if (className.contains("Timer")) {
-            stats.timers++;
-        }
-        if (className.contains("Config")) {
-            stats.configElements++;
-        }
-        if (className.contains("Visualizer") || className.contains("ResultCollector") || className.contains("Listener")) {
-            stats.listeners++;
-        }
-        if (className.contains("CSVDataSet")) {
-            collectEntitiesFromVariableNames(element.getPropertyAsString("variableNames"), stats.entities);
-        }
-
-        for (int i = 0; i < node.getChildCount(); i++) {
-            Object child = node.getChildAt(i);
-            if (child instanceof JMeterTreeNode) {
-                collectFlowAndStats((JMeterTreeNode) child, stats, nextDepth);
-            }
+    private String safePropertyString(TestElement element, String key, String fallback) {
+        try {
+            org.apache.jmeter.testelement.property.JMeterProperty prop = element.getProperty(key);
+            if (prop == null) return fallback;
+            String val = prop.getStringValue();
+            return (val == null || val.trim().isEmpty()) ? fallback : val;
+        } catch (Exception e) {
+            return fallback;
         }
     }
 
