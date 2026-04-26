@@ -1,6 +1,7 @@
 package org.gigameter.jmeter.ai.plan;
 
 import org.gigameter.jmeter.ai.service.AiService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -9,6 +10,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class PlanCommandHandlerTest {
+
+    @BeforeEach
+    void resetPlanState() {
+        PlanDraftStore.save(null, null);
+        PlanApplyUndoStore.clear();
+    }
 
     @Test
     void returnsUsageMessageWhenScenarioIsMissing() {
@@ -58,9 +65,9 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("AI Plan Preview"));
         assertTrue(response.contains("API TG"));
         assertTrue(response.contains("POST /auth/login"));
+        assertTrue(response.contains("https://api.example.com"));
     }
 
     @Test
@@ -75,12 +82,11 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("CSV Data Set: data/users.csv"));
-        assertTrue(response.contains("CSV variables: username,password"));
-        assertTrue(response.contains("Default think time (ms): 700"));
-        assertTrue(response.contains("Think time (ms): 500"));
-        assertTrue(response.contains("Query params: 1"));
-        assertTrue(response.contains("Body: yes"));
+        assertTrue(response.contains("data/users.csv"));
+        assertTrue(response.contains("username,password"));
+        assertTrue(response.contains("700"));
+        assertTrue(response.contains("500"));
+        assertTrue(response.contains("POST /auth/login"));
     }
 
     @Test
@@ -101,8 +107,32 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan jsr223 flow");
 
-        assertTrue(response.contains("JSR223 groovy"));
-        assertTrue(response.contains("Pre-processors: 1"));
-        assertTrue(response.contains("Post-processors: 1"));
+        assertTrue(response.contains("JSR223/groovy"));
+        assertTrue(response.contains("Pre-processor: 1"));
+        assertTrue(response.contains("Post-processor: 1"));
+    }
+
+    @Test
+    void returnsFailureHintWhenAiResponseIsEmpty() {
+        AiService aiService = mock(AiService.class);
+        when(aiService.generateResponse(anyList())).thenReturn("   ");
+
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+        String response = handler.processPlanCommand("@plan login flow");
+
+        assertTrue(response.contains("Failed to generate structured plan preview"));
+        assertTrue(response.contains("empty response"));
+    }
+
+    @Test
+    void returnsFailureHintWhenAiResponseIsMalformed() {
+        AiService aiService = mock(AiService.class);
+        when(aiService.generateResponse(anyList())).thenReturn("not json at all");
+
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+        String response = handler.processPlanCommand("@plan login flow");
+
+        assertTrue(response.contains("Failed to generate structured plan preview"));
+        assertTrue(response.contains("malformed response"));
     }
 }

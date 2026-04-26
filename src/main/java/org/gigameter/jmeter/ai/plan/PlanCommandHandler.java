@@ -31,14 +31,7 @@ import java.util.Set;
  */
 public class PlanCommandHandler {
     private static final Logger log = LoggerFactory.getLogger(PlanCommandHandler.class);
-    private static final String GENERATE_FAILURE_MESSAGE =
-            "Не удалось сгенерировать черновик плана. Возможные причины:\n" +
-            "- GigaChat вернул невалидный JSON — попробуйте ещё раз\n" +
-            "- Сценарий слишком абстрактный — уточните API-шаги, нагрузку и ожидаемые статусы\n" +
-            "- Проблема с подключением к GigaChat\n\n" +
-            "Пример корректного сценария: `@plan REST API интернет-магазина: авторизация POST /api/auth, " +
-            "получение каталога GET /api/products, добавление в корзину POST /api/cart. " +
-            "50 пользователей, 60 секунд.`";
+    private static final String STRUCTURED_PLAN_FAILURE_PREFIX = "Failed to generate structured plan preview. ";
 
     private final AiService aiService;
     private final PlanCommandParser parser;
@@ -85,8 +78,26 @@ public class PlanCommandHandler {
             return previewRenderer.render(planJson, request.getScenario());
         } catch (Exception e) {
             log.error("Failed to build plan preview", e);
-            return GENERATE_FAILURE_MESSAGE;
+            return structuredPlanFailure(inferStructuredPlanFailureReason(e));
         }
+    }
+
+    private String structuredPlanFailure(String reason) {
+        return STRUCTURED_PLAN_FAILURE_PREFIX
+                + "The model returned an invalid response (" + reason + "). "
+                + "Try a shorter scenario or re-run the command.";
+    }
+
+    private String inferStructuredPlanFailureReason(Exception e) {
+        if (e == null || e.getMessage() == null) {
+            return "malformed response";
+        }
+
+        String normalized = e.getMessage().trim().toLowerCase(Locale.ROOT);
+        if (normalized.contains("empty ai response")) {
+            return "empty response";
+        }
+        return "malformed response";
     }
 
     private String usageMessage() {
