@@ -3,23 +3,23 @@ package org.gigameter.jmeter.ai.plan;
 import com.fasterxml.jackson.databind.JsonNode;
 
 final class PlanDraftValidator {
-    void validate(JsonNode root) {
+    void validate(JsonNode root) throws PlanDraftException {
         if (root == null || !root.isObject()) {
-            throw new IllegalStateException("Root is not a JSON object");
+            throw PlanDraftException.malformedResponse("Root is not a JSON object", null);
         }
 
         JsonNode threadGroup = root.path("thread_group");
         if (!threadGroup.isObject()) {
-            throw new IllegalStateException("thread_group is missing");
+            throw PlanDraftException.malformedResponse("thread_group is missing", null);
         }
 
         if (!threadGroup.path("users").isNumber()) {
-            throw new IllegalStateException("thread_group.users must be numeric");
+            throw PlanDraftException.malformedResponse("thread_group.users must be numeric", null);
         }
 
         JsonNode steps = root.path("steps");
         if (!steps.isArray() || steps.size() == 0) {
-            throw new IllegalStateException("steps must be non-empty array");
+            throw PlanDraftException.malformedResponse("steps must be non-empty array", null);
         }
     }
 }

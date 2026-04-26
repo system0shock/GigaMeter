@@ -4,6 +4,7 @@ import org.gigameter.jmeter.ai.service.AiService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
@@ -82,11 +83,12 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("data/users.csv"));
-        assertTrue(response.contains("username,password"));
-        assertTrue(response.contains("700"));
-        assertTrue(response.contains("500"));
-        assertTrue(response.contains("POST /auth/login"));
+        assertTrue(response.contains("- CSV файл: data/users.csv"));
+        assertTrue(response.contains("  - Переменные: username,password"));
+        assertTrue(response.contains("- Пауза между шагами (мс): 700"));
+        assertTrue(response.contains("   - Query-параметры: 1"));
+        assertTrue(response.contains("   - Тело запроса: есть"));
+        assertTrue(response.contains("   - Пауза (мс): 500"));
     }
 
     @Test
@@ -120,8 +122,8 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("Failed to generate structured plan preview"));
-        assertTrue(response.contains("empty response"));
+        assertTrue(response.contains("Не удалось подготовить предпросмотр плана."));
+        assertTrue(response.contains("Пустой ответ"));
     }
 
     @Test
@@ -132,7 +134,35 @@ class PlanCommandHandlerTest {
         PlanCommandHandler handler = new PlanCommandHandler(aiService);
         String response = handler.processPlanCommand("@plan login flow");
 
-        assertTrue(response.contains("Failed to generate structured plan preview"));
-        assertTrue(response.contains("malformed response"));
+        assertTrue(response.contains("Не удалось подготовить предпросмотр плана."));
+        assertTrue(response.contains("Некорректный ответ модели"));
+    }
+
+    @Test
+    void returnsFailureHintWhenAiServiceFails() {
+        AiService aiService = mock(AiService.class);
+        when(aiService.generateResponse(anyList())).thenThrow(new RuntimeException("401 unauthorized"));
+
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+        String response = handler.processPlanCommand("@plan login flow");
+
+        assertTrue(response.contains("Не удалось подготовить предпросмотр плана."));
+        assertTrue(response.contains("Сервис AI недоступен"));
+        assertFalse(response.contains("Некорректный ответ модели"));
+    }
+
+    @Test
+    void returnsMalformedHintWhenDraftValidationFails() {
+        AiService aiService = mock(AiService.class);
+        when(aiService.generateResponse(anyList())).thenReturn("{\n" +
+                "\"thread_group\":{\"name\":\"API TG\"},\n" +
+                "\"steps\":[{\"name\":\"Login\",\"method\":\"POST\",\"path\":\"/auth/login\"}]\n" +
+                "}");
+
+        PlanCommandHandler handler = new PlanCommandHandler(aiService);
+        String response = handler.processPlanCommand("@plan login flow");
+
+        assertTrue(response.contains("Не удалось подготовить предпросмотр плана."));
+        assertTrue(response.contains("Некорректный ответ модели"));
     }
 }

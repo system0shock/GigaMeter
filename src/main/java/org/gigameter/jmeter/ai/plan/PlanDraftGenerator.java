@@ -15,9 +15,14 @@ final class PlanDraftGenerator {
         this.aiService = aiService;
     }
 
-    JsonNode generate(String scenario) throws Exception {
+    JsonNode generate(String scenario) throws PlanDraftException {
         String prompt = buildPrompt(scenario);
-        String aiResponse = aiService.generateResponse(Collections.singletonList(prompt));
+        String aiResponse;
+        try {
+            aiResponse = aiService.generateResponse(Collections.singletonList(prompt));
+        } catch (Exception e) {
+            throw PlanDraftException.serviceFailure(e);
+        }
         return extractAndParseJson(aiResponse);
     }
 
@@ -54,9 +59,9 @@ final class PlanDraftGenerator {
                 "Сценарий:\n" + scenario;
     }
 
-    private JsonNode extractAndParseJson(String response) throws Exception {
+    private JsonNode extractAndParseJson(String response) throws PlanDraftException {
         if (response == null || response.trim().isEmpty()) {
-            throw new IllegalStateException("Empty AI response");
+            throw PlanDraftException.emptyResponse();
         }
 
         String normalized = response.trim();
@@ -68,10 +73,14 @@ final class PlanDraftGenerator {
         int start = normalized.indexOf('{');
         int end = normalized.lastIndexOf('}');
         if (start < 0 || end <= start) {
-            throw new IllegalStateException("No JSON object found in AI response");
+            throw PlanDraftException.malformedResponse("No JSON object found in AI response", null);
         }
 
         String json = normalized.substring(start, end + 1);
-        return OBJECT_MAPPER.readTree(json);
+        try {
+            return OBJECT_MAPPER.readTree(json);
+        } catch (Exception e) {
+            throw PlanDraftException.malformedResponse("Failed to parse AI response as JSON", e);
+        }
     }
 }
