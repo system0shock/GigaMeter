@@ -791,8 +791,8 @@ public class PlanCommandHandler {
             return "";
         }
         try {
-            String planJson = JMeterPlanSerializer.toCompactJson(tgNode, 200, 20);
-            String prompt = buildBusinessInterpretationPrompt(tgNode.getName(), users, rampUp, scheduler, duration, stats, planJson);
+            String planTree = JMeterPlanSerializer.serialize(tgNode, 200, 20).toReadableTree();
+            String prompt = buildBusinessInterpretationPrompt(tgNode.getName(), users, rampUp, scheduler, duration, stats, planTree);
             String response = aiService.generateResponse(Collections.singletonList(prompt));
             if (response == null) {
                 return "";
@@ -840,7 +840,7 @@ public class PlanCommandHandler {
                 "- Timers: " + stats.timers + "\n" +
                 "- Entities: " + (stats.entities.isEmpty() ? "нет явных" : String.join(", ", stats.entities)) + "\n\n" +
                 "Поток выполнения:\n" + flow +
-                "\nСтруктура плана (JSON):\n" + planJson;
+                "\n" + planJson;
     }
 
     private static class PlanAnalysisStats {

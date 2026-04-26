@@ -1613,11 +1613,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             }
             JMeterTreeNode root = (JMeterTreeNode) rootObj;
             JMeterPlanSerializer.SerializedPlan plan = JMeterPlanSerializer.serialize(root, 150, 20);
-            String json = plan.toJson();
-            if (plan.truncated) {
-                json += "\n// (план обрезан, показаны первые 150 элементов)";
-            }
-            return json;
+            return plan.toReadableTree();
         } catch (Exception e) {
             log.debug("Failed to build test plan context summary", e);
             return "";
