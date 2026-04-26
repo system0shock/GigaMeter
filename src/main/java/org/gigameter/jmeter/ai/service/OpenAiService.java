@@ -63,10 +63,7 @@ public class OpenAiService implements AiService {
             }
 
             log.info("Loaded system prompt from properties (length: {})", systemPrompt.length());
-            // Only log the first 100 characters of the system prompt to avoid flooding the
-            // logs
-            log.info("System prompt (first 100 chars): {}",
-                    systemPrompt.substring(0, Math.min(100, systemPrompt.length())));
+            log.info("System prompt initialized from properties: length={}", systemPrompt.length());
         } catch (Exception e) {
             log.error("Error loading system prompt, using default", e);
             systemPrompt = DEFAULT_JMETER_SYSTEM_PROMPT;
@@ -146,8 +143,7 @@ public class OpenAiService implements AiService {
             // systemPromptInitialized flag
             boolean isFirstMessage = !systemPromptInitialized;
             if (isFirstMessage) {
-                log.info("Using system prompt (first 100 chars): {}",
-                        systemPrompt.substring(0, Math.min(100, systemPrompt.length())));
+                log.info("Using system prompt for first message: length={}", systemPrompt.length());
                 systemPromptInitialized = true;
             } else {
                 log.info("Using previously initialized conversation with system prompt");
