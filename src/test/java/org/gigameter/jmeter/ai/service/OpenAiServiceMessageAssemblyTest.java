@@ -58,4 +58,19 @@ class OpenAiServiceMessageAssemblyTest {
         assertTrue(params.messages().get(9).isAssistant());
         assertTrue(params.messages().get(10).isUser());
     }
+
+    @Test
+    void addsFallbackUserMessageWhenHistoryIsEmptyOrBlank() {
+        ChatCompletionCreateParams params = OpenAiService.buildParamsForTest(
+                "demo-system",
+                "gpt-4o",
+                0.7f,
+                512,
+                List.of("", "   "));
+
+        assertEquals(2, params.messages().size());
+        assertTrue(params.messages().get(0).isSystem());
+        assertTrue(params.messages().get(1).isUser());
+        assertTrue(params.messages().get(1).toString().contains("Hello, how can you help me with JMeter?"));
+    }
 }

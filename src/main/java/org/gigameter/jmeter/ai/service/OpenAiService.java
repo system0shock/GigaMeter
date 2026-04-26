@@ -15,6 +15,8 @@ import org.gigameter.jmeter.ai.usage.OpenAiUsage;
 public class OpenAiService implements AiService {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiService.class);
+    private static final int DEFAULT_HISTORY_SIZE_FOR_TESTS = 10;
+    private static final String DEFAULT_FALLBACK_USER_MESSAGE = "Hello, how can you help me with JMeter?";
     private final OpenAIClient client;
     private boolean systemPromptInitialized = false;
 
@@ -143,7 +145,7 @@ public class OpenAiService implements AiService {
             // systemPromptInitialized flag
             boolean isFirstMessage = !systemPromptInitialized;
             if (isFirstMessage) {
-                log.info("Using system prompt for first message: length={}", systemPrompt.length());
+                log.info("Using system prompt for first message");
                 systemPromptInitialized = true;
             } else {
                 log.info("Using previously initialized conversation with system prompt");
@@ -316,7 +318,7 @@ public class OpenAiService implements AiService {
             float temperature,
             long maxTokens,
             List<String> conversation) {
-        return buildParams(systemPrompt, model, temperature, maxTokens, conversation, 10);
+        return buildParams(systemPrompt, model, temperature, maxTokens, conversation, DEFAULT_HISTORY_SIZE_FOR_TESTS);
     }
 
     private static ChatCompletionCreateParams buildParams(
@@ -334,12 +336,14 @@ public class OpenAiService implements AiService {
 
         int historyStart = Math.max(conversation.size() - maxHistorySize, 0);
         List<String> limitedHistory = conversation.subList(historyStart, conversation.size());
+        boolean addedConversationMessage = false;
 
         for (int i = 0; i < limitedHistory.size(); i++) {
             String msg = limitedHistory.get(i);
             if (msg == null || msg.isBlank()) {
                 continue;
             }
+            addedConversationMessage = true;
             if ((historyStart + i) % 2 == 0) {
                 paramsBuilder.addUserMessage(msg);
             } else {
@@ -348,6 +352,9 @@ public class OpenAiService implements AiService {
                                 .content(msg)
                                 .build());
             }
+        }
+        if (!addedConversationMessage) {
+            paramsBuilder.addUserMessage(DEFAULT_FALLBACK_USER_MESSAGE);
         }
         return paramsBuilder.build();
     }
