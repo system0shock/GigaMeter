@@ -17,14 +17,12 @@ GigaMeter — плагин для Apache JMeter с AI-ассистентом в 
 ### Через Plugins Manager
 
 Интеграция в каталог Plugins Manager пока в работе.  
-До публикации используйте ручную установку (stable или nightly).
+До публикации используйте ручную установку.
 
 ### Ручная установка
 
-1. Выберите канал релиза:
-   - stable: https://github.com/system0shock/GigaMeter/releases/latest
-   - nightly: https://github.com/system0shock/GigaMeter/releases/tag/nightly
-2. Скачайте JAR и поместите его в `JMETER_HOME/lib/ext`.
+1. Скачайте JAR из [Releases](https://github.com/system0shock/GigaMeter/releases/latest).
+2. Поместите JAR в `JMETER_HOME/lib/ext`.
 3. Скопируйте настройки из `jmeter-ai-sample.properties` в:
    - `JMETER_HOME/bin/user.properties`, или
    - `JMETER_HOME/bin/jmeter.properties`
@@ -183,46 +181,11 @@ GigaMeter — плагин для Apache JMeter с AI-ассистентом в 
 - Контролируйте лимиты и стоимость API.
 - Не отправляйте чувствительные данные во внешние AI API.
 
-## Сборка, тесты и совместимость
+## Сборка из исходников
 
 - Юнит-тесты: `mvn test`
 - Сборка: `mvn -DskipTests package`
 - Основной артефакт: `target/jmeter-agent-<version>.jar` (не `original-*`)
-
-### Smoke-тесты с реальным JMeter
-
-- PowerShell: `$env:JMETER_VERSION='5.6.2'; ./ci/smoke/run-smoke.ps1`
-- Linux/macOS: `JMETER_VERSION=5.6.2 bash ci/smoke/run-smoke.sh`
-- Для обратной совместимости используйте также `JMETER_VERSION=5.5`
-
-Smoke-проверка падает, если в `jmeter.log` найдены критичные ошибки (`StackOverflowError`, `IncompatibleClassChangeError`, `GroovyRuntimeException`, `Conflicting module versions`, а также общие `ERROR/Exception`).
-
-### Integration-тесты (без внешнего AI API)
-
-- PowerShell: `$env:JMETER_VERSION='5.6.2'; ./ci/integration/run-integration.ps1`
-- Linux/macOS: `JMETER_VERSION=5.6.2 bash ci/integration/run-integration.sh`
-
-Интеграционный сценарий `ci/integration/integration-commands.jmx` использует `Stub AiService`, поэтому:
-
-- не нужны API-ключи
-- нет сетевых вызовов к провайдерам
-- проверяется реальная загрузка плагина и выполнение ключевых команд в non-GUI режиме
-
-### CI и nightly
-
-В GitHub Actions запускаются:
-
-- unit tests
-- smoke (матрица JMeter 5.5 и 5.6.2)
-- integration (JMeter 5.6.2)
-- nightly prerelease по тегу `nightly` (ежедневно, 01:00 UTC)
-
-Nightly release:
-
-- ссылка: https://github.com/system0shock/GigaMeter/releases/tag/nightly
-- ручной запуск: Actions → `Nightly Release` → `Run workflow`
-- публикуются: `jmeter-agent-nightly-YYYYMMDD-<sha7>.jar`, `jmeter-ai-sample.properties`, `SHA256SUMS.txt`
-- используется один и тот же prerelease-тег `nightly` (артефакты обновляются)
 
 ## Известные проблемы
 

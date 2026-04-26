@@ -99,8 +99,8 @@ AI помогает писать тест-план с нуля, анализир
 ## Быстрый старт для демо
 
 ```
-# 1. Скачать JAR из nightly
-https://github.com/system0shock/GigaMeter/releases/tag/nightly
+# 1. Скачать JAR из Releases
+https://github.com/system0shock/GigaMeter/releases/latest
 
 # 2. Положить в JMETER_HOME/lib/ext
 
