@@ -92,16 +92,9 @@ public class JSR223ContextMenu {
             return false;
         }
 
-        // Check which AI service to use from properties
-        String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "openai");
+        String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "anthropic");
 
-        // Check if the appropriate API key and model are configured
-        if ("openai".equalsIgnoreCase(aiServiceType)) {
-            String apiKey = AiConfig.getProperty("openai.api.key", "");
-            String model = AiConfig.getProperty("openai.default.model", "");
-            return apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
-                    && model != null && !model.isEmpty();
-        } else if ("anthropic".equalsIgnoreCase(aiServiceType)) {
+        if ("anthropic".equalsIgnoreCase(aiServiceType)) {
             String apiKey = AiConfig.getProperty("anthropic.api.key", "");
             String model = AiConfig.getProperty("claude.default.model", "");
             return apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")

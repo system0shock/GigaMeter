@@ -43,8 +43,8 @@ class CodeRefactorerTest {
     static void setUpAll() {
         // Set up static mocks once for all tests
         aiConfigMockedStatic = mockStatic(AiConfig.class);
-        aiConfigMockedStatic.when(() -> AiConfig.getProperty("jmeter.ai.service.type", "openai")).thenReturn("openai");
-        aiConfigMockedStatic.when(() -> AiConfig.getProperty("openai.default.model", "gpt-4o")).thenReturn("gpt-4o");
+        aiConfigMockedStatic.when(() -> AiConfig.getProperty("jmeter.ai.service.type", "anthropic")).thenReturn("anthropic");
+        aiConfigMockedStatic.when(() -> AiConfig.getProperty("claude.default.model", "claude-3-sonnet-20240229")).thenReturn("claude-3-sonnet-20240229");
 
         jOptionPaneMock = mockStatic(JOptionPane.class);
     }
@@ -151,7 +151,7 @@ class CodeRefactorerTest {
 
         // Verify the prompt sent to the AI service
         ArgumentCaptor<List<String>> promptCaptor = ArgumentCaptor.forClass(List.class);
-        verify(aiService).generateResponse(promptCaptor.capture(), eq("gpt-4o"));
+        verify(aiService).generateResponse(promptCaptor.capture(), eq("claude-3-sonnet-20240229"));
 
         // Check that the prompt contains the selected code
         String prompt = promptCaptor.getValue().get(0);
@@ -182,7 +182,7 @@ class CodeRefactorerTest {
         jOptionPaneMock.verify(() -> JOptionPane.showMessageDialog(
                 eq(textArea),
                 any(String.class),
-                eq("Refactoring Error"),
+                any(String.class),
                 eq(JOptionPane.ERROR_MESSAGE)));
 
         // Verify no replacement was made

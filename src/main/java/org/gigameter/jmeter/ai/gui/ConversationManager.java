@@ -13,7 +13,6 @@ import java.util.concurrent.ExecutionException;
 
 import org.gigameter.jmeter.ai.service.AiService;
 import org.gigameter.jmeter.ai.service.ClaudeService;
-import org.gigameter.jmeter.ai.service.OpenAiService;
 import org.gigameter.jmeter.ai.utils.JMeterElementRequestHandler;
 import org.gigameter.jmeter.ai.optimizer.OptimizeRequestHandler;
 import com.anthropic.models.ModelInfo;
@@ -28,7 +27,6 @@ public class ConversationManager {
 
     private final List<String> conversationHistory;
     private final ClaudeService claudeService;
-    private final OpenAiService openAiService;
     private AiService currentAiService;
     private final MessageProcessor messageProcessor;
     private final JTextPane chatArea;
@@ -49,15 +47,14 @@ public class ConversationManager {
      * @param elementSuggestionManager The element suggestion manager
      */
     public ConversationManager(JTextPane chatArea, JTextArea messageField, JButton sendButton,
-            JComboBox<ModelInfo> modelSelector, ClaudeService claudeService, OpenAiService openAiService,
+            JComboBox<ModelInfo> modelSelector, ClaudeService claudeService,
             MessageProcessor messageProcessor, ElementSuggestionManager elementSuggestionManager) {
         this.chatArea = chatArea;
         this.messageField = messageField;
         this.sendButton = sendButton;
         this.modelSelector = modelSelector;
         this.claudeService = claudeService;
-        this.openAiService = openAiService;
-        this.currentAiService = claudeService; // Default to Claude
+        this.currentAiService = claudeService;
         this.messageProcessor = messageProcessor;
         this.elementSuggestionManager = elementSuggestionManager;
         this.conversationHistory = new ArrayList<>();
@@ -104,14 +101,8 @@ public class ConversationManager {
      * Updates the current AI service based on the selected model.
      */
     private void updateCurrentAiService() {
-        String selectedModel = (String) modelSelector.getSelectedItem();
-        if (selectedModel != null && selectedModel.startsWith("openai:")) {
-            currentAiService = openAiService;
-            log.info("Updated current AI service to OpenAI");
-        } else {
-            currentAiService = claudeService;
-            log.info("Updated current AI service to Claude");
-        }
+        currentAiService = claudeService;
+        log.info("Updated current AI service to Claude");
     }
 
     /**
@@ -336,15 +327,8 @@ public class ConversationManager {
                 String selectedModel = (String) modelSelector.getSelectedItem();
                 AiService serviceToUse;
 
-                if (selectedModel != null && selectedModel.startsWith("openai:")) {
-                    // Use OpenAI service
-                    serviceToUse = openAiService;
-                    log.info("Using OpenAI service for optimization");
-                } else {
-                    // Use Claude service
-                    serviceToUse = claudeService;
-                    log.info("Using Claude service for optimization");
-                }
+                serviceToUse = claudeService;
+                log.info("Using Claude service for optimization");
 
                 return OptimizeRequestHandler.analyzeAndOptimizeSelectedElement(serviceToUse);
             }
@@ -491,22 +475,12 @@ public class ConversationManager {
         // Get the currently selected model from the dropdown
         String selectedModelStr = (String) modelSelector.getSelectedItem();
 
-        if (selectedModelStr != null) {
-            if (selectedModelStr.startsWith("openai:")) {
-                // For OpenAI models, remove the prefix
-                String modelId = selectedModelStr.substring(7); // Remove "openai:" prefix
-                log.info("Using OpenAI model for message: {}", modelId);
-                openAiService.setModel(modelId);
-                currentAiService = openAiService;
-            } else {
-                // For Claude models
-                log.info("Using Claude model for message: {}", selectedModelStr);
-                claudeService.setModel(selectedModelStr);
-                currentAiService = claudeService;
-            }
+        if (selectedModelStr != null && !selectedModelStr.contains(":")) {
+            log.info("Using Claude model for message: {}", selectedModelStr);
+            claudeService.setModel(selectedModelStr);
         } else {
-            log.warn("No model selected in dropdown, using default Claude model");
-            currentAiService = claudeService;
+            log.info("No specific model override, using current service: {}",
+                    currentAiService.getClass().getSimpleName());
         }
 
         // Use the current AI service to generate a response
