@@ -9,79 +9,113 @@ import javax.swing.*;
 import java.util.List;
 
 /**
- * Handles code refactoring operations using AI.
+ * Handles code refactoring and improvement operations for JSR223 (Groovy) scripts using AI.
  */
 public class CodeRefactorer {
     private static final Logger log = LoggerFactory.getLogger(CodeRefactorer.class);
 
-    // Prompt template for refactoring code
-    private static final String REFACTOR_PROMPT = "Refactor the following code following best practices to improve its structure, readability, and maintainability. "
-            + "IMPORTANT: Provide ONLY the refactored code without any explanations, introductions, commentary, or markdown formatting. "
-            + "DO NOT include backticks, code block markers, or any additional text before or after the code. "
-            + "Just return the raw refactored code that can be directly pasted into a code editor.\n\n"
-            + "Focus on:\n"
-            + "- Proper code organization and separation of concerns\n"
-            + "- Meaningful naming conventions\n"
-            + "- Reducing code duplication\n"
-            + "- Improving error handling\n\n"
-            + "CODE TO REFACTOR:";
+    private static final String REFACTOR_PROMPT =
+            "Refactor the following JMeter JSR223 Groovy script following best practices.\n" +
+            "IMPORTANT: Return ONLY the refactored code — no explanations, no markdown, no backticks.\n\n" +
+            "Apply JMeter/Groovy best practices:\n" +
+            "- Use vars.get('NAME') instead of ${NAME} interpolation inside scripts\n" +
+            "- Use props.get('prop.name') for JMeter properties\n" +
+            "- Use log.info/warn/error for logging (not System.out.println)\n" +
+            "- Use prev.getResponseDataAsString() / prev.getResponseCode() to read sampler results\n" +
+            "- Wrap risky operations in try-catch with log.error in catch block\n" +
+            "- Prefer 'def' for local variables; avoid unnecessary raw types\n" +
+            "- Use vars.putObject('NAME', obj) / vars.getObject('NAME') for non-string cross-sampler data\n" +
+            "- Use props.put('name', value) for sharing data across threads\n" +
+            "- Extract repeated logic into closures or helper methods\n" +
+            "- Improve naming for clarity\n\n" +
+            "CODE TO REFACTOR:";
 
-    private static final String REFACTOR_TRY_CATCH_FINALLY_PROMPT = "Refactor the following code to use try, catch, finally blocks to handle errors. "
-            + "IMPORTANT: Provide ONLY the refactored code without any explanations, introductions, commentary, or markdown formatting. "
-            + "DO NOT include backticks, code block markers, or any additional text before or after the code. "
-            + "Just return the raw refactored code that can be directly pasted into a code editor.\n\n"
-            + "Focus on:\n"
-            + "- Using try, catch, finally blocks to handle errors\n"
-            + "- Meaningful naming conventions\n"
-            + "- Improving error handling\n\n"
-            + "CODE TO REFACTOR:";
+    private static final String REFACTOR_TRY_CATCH_FINALLY_PROMPT =
+            "Wrap the following JMeter JSR223 Groovy script with proper try-catch-finally error handling.\n" +
+            "IMPORTANT: Return ONLY the refactored code — no explanations, no markdown, no backticks.\n\n" +
+            "Rules:\n" +
+            "- Wrap the main logic in try { } catch (Exception e) { } finally { }\n" +
+            "- In catch: log.error('Description of what failed', e)\n" +
+            "- In catch: set SampleResult failure if appropriate: prev.setSuccessful(false); prev.setResponseMessage(e.getMessage())\n" +
+            "- In finally: release resources (close streams, connections, etc.) if any\n" +
+            "- Preserve all existing functionality\n\n" +
+            "CODE TO REFACTOR:";
+
+    private static final String OPTIMIZE_PROMPT =
+            "Optimize the following JMeter JSR223 Groovy script for performance.\n" +
+            "IMPORTANT: Return ONLY the optimized code — no explanations, no markdown, no backticks.\n\n" +
+            "Optimization rules:\n" +
+            "- Replace ${VAR} with vars.get('VAR') — avoids repeated string parsing overhead\n" +
+            "- Replace System.out.println with log.debug to avoid console I/O in load tests\n" +
+            "- Do NOT use Thread.sleep() in scripts — use a Constant Timer element instead\n" +
+            "- Minimize object allocation inside loops\n" +
+            "- Use StringBuilder for string concatenation in loops\n" +
+            "- Prefer props.get() for read-heavy shared data cached at JVM level\n" +
+            "- Avoid heavy file I/O in scripts — use CSV Data Set Config element instead\n" +
+            "- Cache expensive initializations using props or static fields where safe\n" +
+            "- Use Groovy's native JSON/XML parsers (JsonSlurper, XmlSlurper) over manual parsing\n\n" +
+            "CODE TO OPTIMIZE:";
+
+    private static final String ADD_LOGGING_PROMPT =
+            "Add proper JMeter-compatible logging to the following JSR223 Groovy script.\n" +
+            "IMPORTANT: Return ONLY the modified code — no explanations, no markdown, no backticks.\n\n" +
+            "Logging rules:\n" +
+            "- Use log.info() for key informational messages (thread name, extracted values, decisions)\n" +
+            "- Use log.debug() for verbose/diagnostic messages\n" +
+            "- Use log.warn() for recoverable issues\n" +
+            "- Use log.error('message', exception) inside catch blocks\n" +
+            "- Include thread context: ctx.getThreadNum(), vars.get('VAR') in messages where relevant\n" +
+            "- Do NOT use println() or System.out — they do not appear in JMeter logs\n" +
+            "- Add entry/exit logs for complex conditional branches\n" +
+            "- Log the values of key variables after extraction or assignment\n\n" +
+            "CODE:";
+
+    private static final String FIX_VARIABLES_PROMPT =
+            "Convert JMeter variable/property syntax in the following JSR223 Groovy script to use the proper API.\n" +
+            "IMPORTANT: Return ONLY the converted code — no explanations, no markdown, no backticks.\n\n" +
+            "Conversion rules:\n" +
+            "- ${VAR_NAME} in Groovy strings → vars.get('VAR_NAME')\n" +
+            "- vars['NAME'] → vars.get('NAME')\n" +
+            "- Setting variables: vars.put('NAME', value.toString()) for strings\n" +
+            "- Setting objects: vars.putObject('NAME', obj) — use for Lists, Maps, etc.\n" +
+            "- Reading objects: vars.getObject('NAME') — cast to the expected type\n" +
+            "- JMeter properties: ${__P(prop.name,default)} → props.get('prop.name', 'default')\n" +
+            "- Cross-thread sharing: props.put('name', value) / props.get('name')\n" +
+            "- Context: ctx.getThreadNum() for thread number, ctx.getThreadGroup().getName() for group name\n\n" +
+            "CODE:";
 
     private final AiService aiService;
 
-    /**
-     * Constructs a new CodeRefactorer with the specified AI service.
-     *
-     * @param aiService The AI service to use for refactoring
-     */
     public CodeRefactorer(AiService aiService) {
         this.aiService = aiService;
     }
 
-    /**
-     * Refactors the selected code in the given text area.
-     *
-     * @param textArea The text area containing the code to refactor
-     * @return true if refactoring was successful, false otherwise
-     */
     public boolean refactorSelectedCode(RSyntaxTextArea textArea) {
-        return processRefactoring(textArea, REFACTOR_PROMPT, "Р РµС„Р°РєС‚РѕСЂРёРЅРі РєРѕРґР°");
+        return processRefactoring(textArea, REFACTOR_PROMPT, "Рефакторинг кода");
     }
 
-    /**
-     * Refactors the selected code to use try-catch-finally blocks.
-     *
-     * @param textArea The text area containing the code to refactor
-     * @return true if refactoring was successful, false otherwise
-     */
     public boolean refactorTryCatchFinally(RSyntaxTextArea textArea) {
-        return processRefactoring(textArea, REFACTOR_TRY_CATCH_FINALLY_PROMPT, "Р РµС„Р°РєС‚РѕСЂРёРЅРі Try/Catch/Finally");
+        return processRefactoring(textArea, REFACTOR_TRY_CATCH_FINALLY_PROMPT, "Рефакторинг Try/Catch/Finally");
     }
 
-    /**
-     * Processes the refactoring operation using the specified prompt and message
-     * title.
-     *
-     * @param textArea       The text area containing the code to refactor
-     * @param promptTemplate The prompt template to use for refactoring
-     * @param messageTitle   The title to use for dialog messages
-     * @return true if refactoring was successful, false otherwise
-     */
+    public boolean optimizeForPerformance(RSyntaxTextArea textArea) {
+        return processRefactoring(textArea, OPTIMIZE_PROMPT, "Оптимизация кода");
+    }
+
+    public boolean addLogging(RSyntaxTextArea textArea) {
+        return processRefactoring(textArea, ADD_LOGGING_PROMPT, "Добавление логирования");
+    }
+
+    public boolean fixVariables(RSyntaxTextArea textArea) {
+        return processRefactoring(textArea, FIX_VARIABLES_PROMPT, "Исправление переменных");
+    }
+
     private boolean processRefactoring(RSyntaxTextArea textArea, String promptTemplate, String messageTitle) {
         String selectedText = textArea.getSelectedText();
         if (selectedText == null || selectedText.isEmpty()) {
             JOptionPane.showMessageDialog(
                     textArea,
-                    "РЎРЅР°С‡Р°Р»Р° РІС‹РґРµР»РёС‚Рµ РєРѕРґ",
+                    "Сначала выделите код",
                     messageTitle,
                     JOptionPane.INFORMATION_MESSAGE);
             return false;
@@ -89,68 +123,55 @@ public class CodeRefactorer {
 
         try {
             String prompt = promptTemplate + "\n\n" + selectedText;
-
-            // Get the model based on the AI service type
-            String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "anthropic");
-            String model;
-
-            if ("giga".equalsIgnoreCase(aiServiceType) || "gigachat".equalsIgnoreCase(aiServiceType)) {
-                model = AiConfig.getProperty("giga.default.model", "GigaChat");
-            } else {
-                model = AiConfig.getProperty("claude.default.model", "claude-3-sonnet-20240229");
-            }
-
+            String model = resolveModel();
             String refactoredCode = aiService.generateResponse(List.of(prompt), model);
-
-            // Clean up any remaining markdown or code block markers
             refactoredCode = cleanUpCodeResponse(refactoredCode);
-
-            // Replace only the selected text
             textArea.replaceSelection(refactoredCode);
             return true;
         } catch (Exception ex) {
             log.error("Error during code refactoring", ex);
             JOptionPane.showMessageDialog(
                     textArea,
-                    "РћС€РёР±РєР° СЂРµС„Р°РєС‚РѕСЂРёРЅРіР°: " + ex.getMessage(),
-                    "РћС€РёР±РєР° СЂРµС„Р°РєС‚РѕСЂРёРЅРіР°",
+                    "Ошибка рефакторинга: " + ex.getMessage(),
+                    "Ошибка рефакторинга",
                     JOptionPane.ERROR_MESSAGE);
             return false;
         }
     }
 
-    /**
-     * Cleans up the AI response to remove markdown formatting and code block
-     * markers.
-     *
-     * @param response The response from the AI service
-     * @return The cleaned up code response
-     */
+    private String resolveModel() {
+        if (aiService instanceof CliAiService) {
+            return "cli";
+        }
+        String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "anthropic");
+        if ("giga".equalsIgnoreCase(aiServiceType) || "gigachat".equalsIgnoreCase(aiServiceType)) {
+            return AiConfig.getProperty("giga.default.model", "GigaChat");
+        }
+        return AiConfig.getProperty("claude.default.model", "claude-3-sonnet-20240229");
+    }
+
     private String cleanUpCodeResponse(String response) {
         if (response == null || response.isEmpty()) {
             return response;
         }
 
-        // Remove markdown code block markers
         String cleaned = response;
 
-        // Remove "```groovy" or "```java" or any language identifier at the start
+        // Remove opening code fence with optional language tag
         cleaned = cleaned.replaceAll("^```\\w*\\s*\\n", "");
 
-        // Remove closing "```" at the end
+        // Remove closing code fence
         cleaned = cleaned.replaceAll("```\\s*$", "");
 
-        // Remove any triple backticks anywhere
+        // Remove any remaining triple backticks
         cleaned = cleaned.replace("```", "");
 
-        // If the response starts with "Here's the refactored code:" or similar phrases,
-        // remove them
+        // Remove "Here's the refactored code:" style preambles
         cleaned = cleaned.replaceAll("(?i)^.*?(here'?s\\s+the\\s+refactored\\s+code:?\\s*\\n)", "");
 
-        // Remove explanations or notes that might appear after the code
+        // Remove trailing note/explanation paragraphs
         cleaned = cleaned.replaceAll("(?i)\\n\\s*\\n.*?(note|explanation|changes|improvements):?.*$", "");
 
         return cleaned.trim();
     }
 }
-

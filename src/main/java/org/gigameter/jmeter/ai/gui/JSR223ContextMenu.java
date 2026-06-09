@@ -168,6 +168,21 @@ public class JSR223ContextMenu {
         aiTryCatchFinallyItem.addActionListener(e -> refactorer.refactorTryCatchFinally(textArea));
         popupMenu.add(aiTryCatchFinallyItem);
 
+        // Add performance optimization menu item
+        JMenuItem optimizeItem = new JMenuItem("Оптимизировать (Groovy)");
+        optimizeItem.addActionListener(e -> refactorer.optimizeForPerformance(textArea));
+        popupMenu.add(optimizeItem);
+
+        // Add logging menu item
+        JMenuItem addLoggingItem = new JMenuItem("Добавить логирование");
+        addLoggingItem.addActionListener(e -> refactorer.addLogging(textArea));
+        popupMenu.add(addLoggingItem);
+
+        // Add variable conversion menu item
+        JMenuItem fixVariablesItem = new JMenuItem("Исправить переменные JMeter");
+        fixVariablesItem.addActionListener(e -> refactorer.fixVariables(textArea));
+        popupMenu.add(fixVariablesItem);
+
         // Add format code menu item
         JMenuItem formatCodeItem = new JMenuItem("Форматировать код");
         formatCodeItem.addActionListener(e -> {
@@ -227,15 +242,18 @@ public class JSR223ContextMenu {
                 cutItem.setEnabled(hasSelection);
                 copyItem.setEnabled(hasSelection);
 
-                // Find the AI help item if it exists
+                // Enable/disable selection-dependent AI menu items
                 for (int i = 0; i < popupMenu.getComponentCount(); i++) {
                     if (popupMenu.getComponent(i) instanceof JMenuItem) {
                         JMenuItem item = (JMenuItem) popupMenu.getComponent(i);
-                        if (item.getText().equals("Рефакторинг кода")) {
-                            item.setEnabled(hasSelection);
-                        }
-                        if (item.getText().equals("Try/Catch/Finally")) {
-                            item.setEnabled(hasSelection);
+                        switch (item.getText()) {
+                            case "Рефакторинг кода":
+                            case "Try/Catch/Finally":
+                            case "Оптимизировать (Groovy)":
+                            case "Добавить логирование":
+                            case "Исправить переменные JMeter":
+                                item.setEnabled(hasSelection);
+                                break;
                         }
                     }
                 }
