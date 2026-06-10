@@ -43,8 +43,7 @@ class CodeRefactorerTest {
     static void setUpAll() {
         // Set up static mocks once for all tests
         aiConfigMockedStatic = mockStatic(AiConfig.class);
-        aiConfigMockedStatic.when(() -> AiConfig.getProperty("jmeter.ai.service.type", "anthropic")).thenReturn("anthropic");
-        aiConfigMockedStatic.when(() -> AiConfig.getProperty("claude.default.model", "claude-3-sonnet-20240229")).thenReturn("claude-3-sonnet-20240229");
+        aiConfigMockedStatic.when(() -> AiConfig.getProperty("giga.default.model", "GigaChat")).thenReturn("GigaChat");
 
         jOptionPaneMock = mockStatic(JOptionPane.class);
     }
@@ -151,7 +150,7 @@ class CodeRefactorerTest {
 
         // Verify the prompt sent to the AI service
         ArgumentCaptor<List<String>> promptCaptor = ArgumentCaptor.forClass(List.class);
-        verify(aiService).generateResponse(promptCaptor.capture(), eq("claude-3-sonnet-20240229"));
+        verify(aiService).generateResponse(promptCaptor.capture(), eq("GigaChat"));
 
         // Check that the prompt contains the selected code
         String prompt = promptCaptor.getValue().get(0);

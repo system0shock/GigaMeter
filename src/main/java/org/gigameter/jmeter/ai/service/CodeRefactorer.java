@@ -143,11 +143,7 @@ public class CodeRefactorer {
         if (aiService instanceof CliAiService) {
             return "cli";
         }
-        String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "anthropic");
-        if ("giga".equalsIgnoreCase(aiServiceType) || "gigachat".equalsIgnoreCase(aiServiceType)) {
-            return AiConfig.getProperty("giga.default.model", "GigaChat");
-        }
-        return AiConfig.getProperty("claude.default.model", "claude-3-sonnet-20240229");
+        return AiConfig.getProperty("giga.default.model", "GigaChat");
     }
 
     private String cleanUpCodeResponse(String response) {

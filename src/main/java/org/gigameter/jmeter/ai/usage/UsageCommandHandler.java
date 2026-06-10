@@ -2,7 +2,6 @@ package org.gigameter.jmeter.ai.usage;
 
 import org.gigameter.jmeter.ai.service.AiService;
 import org.gigameter.jmeter.ai.service.CliAiService;
-import org.gigameter.jmeter.ai.service.ClaudeService;
 import org.gigameter.jmeter.ai.service.GigaChatService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,9 +19,7 @@ public class UsageCommandHandler {
         }
         log.info("Processing usage command for service: {}", serviceToUse.getClass().getSimpleName());
 
-        if (serviceToUse instanceof ClaudeService) {
-            return AnthropicUsage.getInstance().getUsageSummary();
-        } else if (serviceToUse instanceof GigaChatService) {
+        if (serviceToUse instanceof GigaChatService) {
             return GigaChatUsage.getInstance().getUsageSummary();
         } else if (serviceToUse instanceof CliAiService) {
             return "Отслеживание токенов недоступно для CLI-провайдеров (" +

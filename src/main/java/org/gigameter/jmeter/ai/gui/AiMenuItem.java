@@ -4,7 +4,6 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.gui.util.JMeterToolBar;
 import org.gigameter.jmeter.ai.service.AiService;
-import org.gigameter.jmeter.ai.service.ClaudeService;
 import org.gigameter.jmeter.ai.service.GigaChatService;
 import org.gigameter.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
@@ -61,15 +60,7 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
      */
     private AiService createAiService(String serviceType) {
         try {
-            if ("anthropic".equalsIgnoreCase(serviceType)) {
-                // Check if Anthropic API key is configured
-                String apiKey = AiConfig.getProperty("anthropic.api.key", "");
-                String model = AiConfig.getProperty("claude.default.model", "");
-                if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
-                        && model != null && !model.isEmpty()) {
-                    return new ClaudeService();
-                }
-            } else if ("giga".equalsIgnoreCase(serviceType) || "gigachat".equalsIgnoreCase(serviceType)) {
+            if ("giga".equalsIgnoreCase(serviceType) || "gigachat".equalsIgnoreCase(serviceType)) {
                 String authKey = AiConfig.getProperty("giga.auth.key", "");
                 String accessToken = AiConfig.getProperty("giga.access.token", "");
                 String model = AiConfig.getProperty("giga.default.model", "");

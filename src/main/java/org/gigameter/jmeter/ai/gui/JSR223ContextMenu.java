@@ -92,14 +92,9 @@ public class JSR223ContextMenu {
             return false;
         }
 
-        String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "anthropic");
+        String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "giga");
 
-        if ("anthropic".equalsIgnoreCase(aiServiceType)) {
-            String apiKey = AiConfig.getProperty("anthropic.api.key", "");
-            String model = AiConfig.getProperty("claude.default.model", "");
-            return apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
-                    && model != null && !model.isEmpty();
-        } else if ("giga".equalsIgnoreCase(aiServiceType) || "gigachat".equalsIgnoreCase(aiServiceType)) {
+        if ("giga".equalsIgnoreCase(aiServiceType) || "gigachat".equalsIgnoreCase(aiServiceType)) {
             String authKey = AiConfig.getProperty("giga.auth.key", "");
             String accessToken = AiConfig.getProperty("giga.access.token", "");
             String model = AiConfig.getProperty("giga.default.model", "");

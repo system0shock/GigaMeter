@@ -21,7 +21,6 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
-import org.gigameter.jmeter.ai.service.ClaudeService;
 import org.gigameter.jmeter.ai.service.GigaChatService;
 import org.gigameter.jmeter.ai.service.GigaCodeCliService;
 import org.gigameter.jmeter.ai.service.QwenCodeCliService;
@@ -29,16 +28,12 @@ import org.gigameter.jmeter.ai.usage.UsageCommandHandler;
 import org.gigameter.jmeter.ai.utils.AiConfig;
 import org.gigameter.jmeter.ai.utils.JMeterElementManager;
 import org.gigameter.jmeter.ai.utils.JMeterElementRequestHandler;
-import org.gigameter.jmeter.ai.utils.Models;
 import org.gigameter.jmeter.ai.utils.VersionUtils;
 import org.gigameter.jmeter.ai.optimizer.OptimizeRequestHandler;
 import org.gigameter.jmeter.ai.lint.LintCommandHandler;
 import org.gigameter.jmeter.ai.wrap.WrapCommandHandler;
 import org.gigameter.jmeter.ai.wrap.WrapUndoRedoHandler;
 import org.gigameter.jmeter.ai.service.AiService;
-
-import com.anthropic.models.ModelInfo;
-import com.anthropic.models.ModelListPage;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,7 +53,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JButton sendButton;
     private JComboBox<String> modelSelector;
     private List<String> conversationHistory;
-    private ClaudeService claudeService;
     private GigaChatService gigaChatService;
     private QwenCodeCliService qwenCodeCliService;
     private GigaCodeCliService gigaCodeCliService;
@@ -87,7 +81,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      */
     public AiChatPanel() {
         // Initialize services and utilities
-        claudeService = new ClaudeService();
         gigaChatService = new GigaChatService();
         qwenCodeCliService = new QwenCodeCliService();
         gigaCodeCliService = new GigaCodeCliService();
@@ -134,8 +127,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 log.info("Model selected from dropdown: {}", selectedModel);
                 if (selectedModel.startsWith("giga:")) {
                     gigaChatService.setModel(selectedModel.substring(5));
-                } else {
-                    claudeService.setModel(selectedModel);
                 }
             }
         });
@@ -414,20 +405,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 // Get models from both services
                 List<String> allModels = new ArrayList<>();
 
-                // Get Anthropic models
-                try {
-                    ModelListPage anthropicModels = Models.getAnthropicModels(claudeService.getClient());
-                    if (anthropicModels != null && anthropicModels.data() != null) {
-                        for (ModelInfo model : anthropicModels.data()) {
-                            allModels.add(model.id());
-                            log.debug("Added Anthropic model: {}", model.id());
-                        }
-                        log.info("Added {} Anthropic models", anthropicModels.data().size());
-                    }
-                } catch (Exception e) {
-                    log.error("Error loading Anthropic models: {}", e.getMessage(), e);
-                }
-
                 // Add GigaChat models
                 try {
                     List<String> gigaModels = gigaChatService.getModelIds();
@@ -462,15 +439,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     List<String> models = get();
                     modelSelector.removeAllItems();
 
-                    // Get the default model ID from configured provider
-                    String defaultService = AiConfig.getProperty("jmeter.ai.service.type", "anthropic");
-                    String defaultModelId;
-                    if ("giga".equalsIgnoreCase(defaultService)
-                            || "gigachat".equalsIgnoreCase(defaultService)) {
-                        defaultModelId = "giga:" + gigaChatService.getCurrentModel();
-                    } else {
-                        defaultModelId = claudeService.getCurrentModel();
-                    }
+                    // Default to GigaChat
+                    String defaultModelId = "giga:" + gigaChatService.getCurrentModel();
                     log.info("Default model ID: {}", defaultModelId);
 
                     String defaultModel = null;
@@ -493,8 +463,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         if (selectedModel != null) {
                             if (selectedModel.startsWith("giga:")) {
                                 gigaChatService.setModel(selectedModel.substring(5));
-                            } else if (!selectedModel.contains(":")) {
-                                claudeService.setModel(selectedModel);
                             }
                         }
                         log.info("Default model not found, selected first available: {}", selectedModel);
@@ -1248,9 +1216,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Get the currently selected model from the dropdown
         String selectedModel = (String) modelSelector.getSelectedItem();
         if (selectedModel == null) {
-            log.warn("No model selected in dropdown, using default Anthropic model: {}",
-                    claudeService.getCurrentModel());
-            return claudeService.generateResponse(new ArrayList<>(conversationHistory));
+            log.warn("No model selected, falling back to GigaChat");
+            return gigaChatService.generateResponse(new ArrayList<>(conversationHistory));
         }
 
         // Get the model ID
@@ -1268,14 +1235,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.info("Using GigaCode CLI");
             return gigaCodeCliService.generateResponse(new ArrayList<>(conversationHistory));
         } else {
-            // This is an Anthropic model
-            log.info("Using Anthropic model: {}", selectedModel);
-
-            // Set the model in the Claude service
-            claudeService.setModel(selectedModel);
-
-            // Call Claude API with conversation history
-            return claudeService.generateResponse(new ArrayList<>(conversationHistory));
+            log.warn("Unknown model prefix: {}, falling back to GigaChat", selectedModel);
+            return gigaChatService.generateResponse(new ArrayList<>(conversationHistory));
         }
     }
 
@@ -1434,7 +1395,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private AiService getServiceForSelectedModel() {
         String selectedModel = (String) modelSelector.getSelectedItem();
         if (selectedModel == null) {
-            return claudeService;
+            return gigaChatService;
         }
         if (selectedModel.startsWith("giga:")) {
             return gigaChatService;
@@ -1445,7 +1406,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         if (selectedModel.startsWith("gigacode-cli:")) {
             return gigaCodeCliService;
         }
-        return claudeService;
+        return gigaChatService;
     }
 
     /**
