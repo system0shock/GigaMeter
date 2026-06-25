@@ -5,51 +5,50 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for CommandIntellisenseProvider
+ * Unit tests for CommandIntellisenseProvider. The advertised set is the CLI-first commands:
+ * @plan, @lint, @optimize, @rollback (legacy @this/@wrap/@usage/@code are no longer surfaced).
  */
 public class CommandIntellisenseProviderTest {
 
     @Test
     public void testGetSuggestionsWithExactMatch() {
         CommandIntellisenseProvider provider = new CommandIntellisenseProvider();
-        List<String> suggestions = provider.getSuggestions("@code");
-        
+        List<String> suggestions = provider.getSuggestions("@plan");
+
         assertEquals(1, suggestions.size());
-        assertEquals("@code", suggestions.get(0));
+        assertEquals("@plan", suggestions.get(0));
     }
-    
+
     @Test
     public void testGetSuggestionsWithPartialMatch() {
         CommandIntellisenseProvider provider = new CommandIntellisenseProvider();
-        List<String> suggestions = provider.getSuggestions("@c");
-        
-        assertTrue(suggestions.contains("@code"));
-        // Should not contain commands that don't start with @c
-        assertFalse(suggestions.contains("@wrap"));
+        List<String> suggestions = provider.getSuggestions("@l");
+
+        assertTrue(suggestions.contains("@lint"));
+        // Should not contain commands that don't start with @l
+        assertFalse(suggestions.contains("@plan"));
     }
-    
+
     @Test
     public void testGetSuggestionsWithNoMatch() {
         CommandIntellisenseProvider provider = new CommandIntellisenseProvider();
         List<String> suggestions = provider.getSuggestions("@xyz");
-        
+
         assertTrue(suggestions.isEmpty());
     }
-    
+
     @Test
     public void testGetSuggestionsWithAtSymbolOnly() {
         CommandIntellisenseProvider provider = new CommandIntellisenseProvider();
         List<String> suggestions = provider.getSuggestions("@");
-        
-        // Should return all available commands
-        assertTrue(suggestions.contains("@code"));
-        assertTrue(suggestions.contains("@wrap"));
-        assertTrue(suggestions.contains("@lint"));
-        assertTrue(suggestions.contains("@usage"));
+
+        // Should return all advertised CLI-first commands
         assertTrue(suggestions.contains("@plan"));
-        assertTrue(suggestions.contains("@rollback"));
+        assertTrue(suggestions.contains("@lint"));
         assertTrue(suggestions.contains("@optimize"));
-        assertTrue(suggestions.contains("@this"));
+        assertTrue(suggestions.contains("@rollback"));
+        // Legacy commands are no longer surfaced
+        assertFalse(suggestions.contains("@usage"));
+        assertFalse(suggestions.contains("@code"));
     }
 }
-

@@ -30,6 +30,18 @@ import org.gigameter.jmeter.ai.utils.AiConfig;
 import org.gigameter.jmeter.ai.utils.JMeterElementManager;
 import org.gigameter.jmeter.ai.utils.JMeterElementRequestHandler;
 import org.gigameter.jmeter.ai.utils.JMeterPlanSerializer;
+import org.gigameter.jmeter.ai.service.cli.CliAiService;
+import org.gigameter.jmeter.ai.skills.SkillService;
+import org.gigameter.jmeter.ai.service.ops.FencedOpsExtractor;
+import org.gigameter.jmeter.ai.service.ops.OpsApplier;
+import org.gigameter.jmeter.ai.service.ops.OpsApplyResult;
+import org.gigameter.jmeter.ai.service.ops.OpsException;
+import org.gigameter.jmeter.ai.service.ops.OpsPreviewRenderer;
+import org.gigameter.jmeter.ai.service.ops.OpsProtocol;
+import org.gigameter.jmeter.ai.service.ops.OpsUndoStore;
+import org.gigameter.jmeter.ai.service.ops.PlanOp;
+import org.gigameter.jmeter.ai.service.ops.PlanOpsParser;
+import org.gigameter.jmeter.ai.service.ops.PlanOpsValidator;
 import org.gigameter.jmeter.ai.utils.Models;
 import org.gigameter.jmeter.ai.utils.VersionUtils;
 import org.gigameter.jmeter.ai.optimizer.OptimizeRequestHandler;
@@ -37,6 +49,8 @@ import org.gigameter.jmeter.ai.lint.LintCommandHandler;
 import org.gigameter.jmeter.ai.wrap.WrapCommandHandler;
 import org.gigameter.jmeter.ai.wrap.WrapUndoRedoHandler;
 import org.gigameter.jmeter.ai.service.OpenAiService;
+import org.gigameter.jmeter.ai.service.QwenCodeCliService;
+import org.gigameter.jmeter.ai.service.GigaCodeCliService;
 import org.gigameter.jmeter.ai.service.AiService;
 
 import org.slf4j.Logger;
@@ -55,6 +69,11 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JTextPane chatArea;
     private JTextArea messageField;
     private JButton sendButton;
+    private JButton stopButton;
+    private JButton newChatButton;
+    private JButton rollbackButton;
+    /** The in-flight chat request, so a Stop action can cancel it. */
+    private volatile SwingWorker<?, ?> activeWorker;
     private JComboBox<String> modelSelector;
     private JCheckBox contextToggle;
     private JComboBox<String> contextModeSelector;
@@ -62,6 +81,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private DeepSeekService deepSeekService;
     private OpenAiService openAiService;
     private GigaChatService gigaChatService;
+    private QwenCodeCliService qwenCodeCliService;
+    private GigaCodeCliService gigaCodeCliService;
     private TreeNavigationButtons treeNavigationButtons;
     private JPanel navigationPanel; // Added field for navigation panel
 
@@ -78,10 +99,24 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         NONE,
         LINT,
         WRAP,
-        PLAN_APPLY
+        PLAN_APPLY,
+        CLI_OPS
     }
 
     private LastCommandType lastCommandType = LastCommandType.NONE;
+
+    /** Tree revision hash sent to the CLI agent on the last turn; guards stale-id edits. */
+    private volatile String lastCliOpsRevision;
+
+    /** Tree revision last sent to a CLI agent; lets session turns skip re-sending unchanged context. */
+    private volatile String lastSentTreeRevision;
+
+    /** True when the last response was rendered incrementally via streaming (avoid re-render). */
+    private volatile boolean lastResponseStreamed;
+    /** Count of characters streamed live this turn (0 ⇒ nothing shown, render the final text). */
+    private volatile int streamedChars;
+    /** Document offset where this turn's streamed text began (to wipe raw ops JSON before applying). */
+    private volatile int cliStreamStartOffset;
 
     /**
      * Constructs a new AiChatPanel.
@@ -91,6 +126,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         deepSeekService = new DeepSeekService();
         openAiService = new OpenAiService();
         gigaChatService = new GigaChatService();
+        qwenCodeCliService = new QwenCodeCliService();
+        gigaCodeCliService = new GigaCodeCliService();
         messageProcessor = new MessageProcessor();
 
         // Initialize tree navigation buttons with action listeners
@@ -140,6 +177,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     deepSeekService.setModel(selectedModel.substring(9));
                 }
             }
+            updateContextControlsVisibility();
         });
 
         // Create a panel for the chat area with header
@@ -369,12 +407,23 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         messageScrollPane.setBorder(BorderFactory.createEmptyBorder());
         inputPanel.add(messageScrollPane, BorderLayout.CENTER);
 
-        // Initialize send button
+        // Initialize send + stop buttons (stop is shown only while a request is in flight)
         sendButton = new JButton("Отправить");
         sendButton.setFont(new Font(sendButton.getFont().getName(), Font.BOLD, 12));
         sendButton.setFocusPainted(false);
         sendButton.addActionListener(e -> sendMessage());
-        inputPanel.add(sendButton, BorderLayout.EAST);
+
+        stopButton = new JButton("Стоп");
+        stopButton.setFont(new Font(stopButton.getFont().getName(), Font.BOLD, 12));
+        stopButton.setFocusPainted(false);
+        stopButton.setToolTipText("Прервать текущий запрос");
+        stopButton.setVisible(false);
+        stopButton.addActionListener(e -> cancelActiveRequest());
+
+        JPanel buttonPanel = new JPanel(new BorderLayout());
+        buttonPanel.add(sendButton, BorderLayout.CENTER);
+        buttonPanel.add(stopButton, BorderLayout.SOUTH);
+        inputPanel.add(buttonPanel, BorderLayout.EAST);
 
         bottomPanel.add(inputPanel, BorderLayout.SOUTH);
 
@@ -403,7 +452,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         headerPanel.add(titleLabel, BorderLayout.WEST);
 
         // Create the "New Chat" button with a plus icon
-        JButton newChatButton = new JButton("+");
+        newChatButton = new JButton("+");
         newChatButton.setToolTipText("Начать новый диалог");
         newChatButton.setFont(new Font(newChatButton.getFont().getName(), Font.BOLD, 16));
         newChatButton.setFocusPainted(false);
@@ -415,8 +464,22 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Add action listener to reset the conversation
         newChatButton.addActionListener(e -> startNewConversation());
 
-        // Add the button to the right side of the header panel
-        headerPanel.add(newChatButton, BorderLayout.EAST);
+        // "Откатить" button — runs the same logic as @rollback (undo the agent's last change).
+        rollbackButton = new JButton("↶ Откатить");
+        rollbackButton.setToolTipText("Откатить последнее изменение, внесённое агентом");
+        rollbackButton.setFocusPainted(false);
+        rollbackButton.setMargin(new Insets(0, 8, 0, 8));
+        rollbackButton.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(getBorderColor(), 1, true),
+                BorderFactory.createEmptyBorder(2, 8, 2, 8)));
+        rollbackButton.addActionListener(e -> handleRollbackCommand());
+
+        // Group the action buttons on the right side of the header.
+        JPanel headerButtons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+        headerButtons.setOpaque(false);
+        headerButtons.add(rollbackButton);
+        headerButtons.add(newChatButton);
+        headerPanel.add(headerButtons, BorderLayout.EAST);
 
         return headerPanel;
     }
@@ -431,7 +494,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 // Get models from configured services
                 List<String> allModels = new ArrayList<>();
 
+                // Cloud providers (OpenAI/DeepSeek/GigaChat) are hidden by default — the plugin is
+                // CLI-first. Re-enable with gigameter.providers.cloud.enabled=true.
+                boolean cloudEnabled = "true".equalsIgnoreCase(
+                        AiConfig.getProperty("gigameter.providers.cloud.enabled", "false"));
+
                 // Add OpenAI models
+                if (cloudEnabled)
                 try {
                     com.openai.models.ModelListPage openAiModels = Models.getOpenAiModels(openAiService.getClient());
                     if (openAiModels != null && openAiModels.data() != null) {
@@ -460,6 +529,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 }
 
                 // Add DeepSeek models
+                if (cloudEnabled)
                 try {
                     List<String> deepSeekModels = deepSeekService.getModelIds();
                     for (String deepSeekModel : deepSeekModels) {
@@ -473,6 +543,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 }
 
                 // Add GigaChat models
+                if (cloudEnabled)
                 try {
                     List<String> gigaModels = gigaChatService.getModelIds();
                     for (String gigaModel : gigaModels) {
@@ -485,6 +556,22 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     log.error("Error adding GigaChat models: {}", e.getMessage(), e);
                 }
 
+                // Add local CLI providers when their command is configured, one entry per model from
+                // <prefix>.cli.models (qwen has no "list models" API). Falls back to a single
+                // ":default" entry (the CLI's own configured model) when no list is given.
+                if (!AiConfig.getProperty("qwen.cli.command", "").trim().isEmpty()) {
+                    for (String m : cliModelList("qwen")) {
+                        allModels.add("qwen-cli:" + m);
+                    }
+                    log.info("Added Qwen Code CLI models to selector");
+                }
+                if (!AiConfig.getProperty("gigacode.cli.command", "").trim().isEmpty()) {
+                    for (String m : cliModelList("gigacode")) {
+                        allModels.add("gigacode-cli:" + m);
+                    }
+                    log.info("Added GigaCode CLI models to selector");
+                }
+
                 return allModels;
             }
 
@@ -494,8 +581,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     List<String> models = get();
                     modelSelector.removeAllItems();
 
-                    // Get the default model ID from configured provider
-                    String defaultService = AiConfig.getProperty("jmeter.ai.service.type", "openai");
+                    // Get the default model ID from configured provider. CLI-first: default to qwen.
+                    String defaultService = AiConfig.getProperty("jmeter.ai.service.type", "qwen");
                     String defaultModelId;
                     if ("openai".equalsIgnoreCase(defaultService)) {
                         defaultModelId = "openai:" + openAiService.getCurrentModel();
@@ -504,8 +591,15 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     } else if ("giga".equalsIgnoreCase(defaultService)
                             || "gigachat".equalsIgnoreCase(defaultService)) {
                         defaultModelId = "giga:" + gigaChatService.getCurrentModel();
+                    } else if ("cli".equalsIgnoreCase(defaultService)
+                            || "qwen".equalsIgnoreCase(defaultService)
+                            || "qwen-cli".equalsIgnoreCase(defaultService)) {
+                        defaultModelId = "qwen-cli:" + cliModelList("qwen").get(0);
+                    } else if ("gigacode".equalsIgnoreCase(defaultService)
+                            || "gigacode-cli".equalsIgnoreCase(defaultService)) {
+                        defaultModelId = "gigacode-cli:" + cliModelList("gigacode").get(0);
                     } else {
-                        defaultModelId = "openai:" + openAiService.getCurrentModel();
+                        defaultModelId = "qwen-cli:" + cliModelList("qwen").get(0);
                     }
                     log.info("Default model ID: {}", defaultModelId);
 
@@ -551,13 +645,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         log.info("Displaying welcome message");
 
         String welcomeMessage = "# Добро пожаловать в GigaMeter\n\n" +
-                "Я помогу с вашим планом тестирования JMeter: отвечу на вопросы, подскажу элементы и дам рекомендации по оптимизации.\n\n" +
-                "**Специальные команды:**\n" +
-                "- `@this` — информация о выбранном элементе\n" +
-                "- `@optimize` — рекомендации по оптимизации выбранного элемента\n" +
-                "- `@lint` — переименование элементов в плане\n" +
-                "- `@wrap` — группировка HTTP Sampler под Transaction Controller\n" +
-                "- `@usage` — статистика использования AI\n\n" +
+                "Опишите задачу обычным языком — отвечу на вопросы по тест-плану, проанализирую его и " +
+                "могу вносить изменения в дерево с предпросмотром и подтверждением.\n\n" +
+                "**Команды:**\n" +
+                "- `@plan <сценарий>` — создать или дополнить тест-план\n" +
+                "- `@lint` — привести имена элементов к единым правилам\n" +
+                "- `@optimize` — рекомендации по оптимизации\n" +
+                "- `@rollback` — откатить последнее изменение агента\n\n" +
                 "Чем помочь?";
 
         try {
@@ -581,6 +675,11 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
         // Reset the last command type
         lastCommandType = LastCommandType.NONE;
+
+        // Drop any persistent CLI sessions so the new chat starts fresh
+        try { qwenCodeCliService.resetSession(); } catch (RuntimeException ignored) { /* best effort */ }
+        try { gigaCodeCliService.resetSession(); } catch (RuntimeException ignored) { /* best effort */ }
+        lastSentTreeRevision = null;
 
         // Display welcome message
         displayWelcomeMessage();
@@ -617,6 +716,15 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.error("Error adding loading indicator", e);
         }
 
+        // In CLI mode, @lint/@plan/@optimize run as editable "skills" through the CLI ops protocol
+        // instead of the legacy cloud handlers: rewrite the turn to the skill prompt + the user's
+        // args, then fall through to the normal CLI send path (streaming + ops apply).
+        String skillId = skillCommandId(message);
+        if (isCliModelSelected() && skillId != null) {
+            String composed = composeSkillPrompt(skillId, message);
+            conversationHistory.set(conversationHistory.size() - 1, composed);
+            // fall through (do NOT return) to the regular send flow below
+        } else
         // Check for special commands
         if (message.trim().startsWith("@this")) {
             handleThisCommand(message);
@@ -662,7 +770,10 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         messageField.setEnabled(false);
         sendButton.setEnabled(false);
 
-        String elementResponse = JMeterElementRequestHandler.processElementRequest(message);
+        // CLI agents drive editing through the jmeter-ops protocol, not the regex sentinel handler;
+        // skip the keyword interception so "add a thread group" reaches the agent verbatim.
+        String elementResponse = isCliModelSelected()
+                ? null : JMeterElementRequestHandler.processElementRequest(message);
 
         // Only process as an element request if it's a valid request
         // This prevents general conversation from being interpreted as element requests
@@ -685,7 +796,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         log.info("Message not recognized as an element request, processing as regular AI request");
 
         // Process the message in a background thread
-        new SwingWorker<String, Void>() {
+        SwingWorker<String, Void> worker = new SwingWorker<String, Void>() {
             @Override
             protected String doInBackground() throws Exception {
                 return getAiResponse(message);
@@ -693,6 +804,10 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
 
             @Override
             protected void done() {
+                if (isCancelled()) {
+                    // Stop button already cleaned up the UI and killed the subprocess.
+                    return;
+                }
                 try {
                     // Remove the loading indicator
                     removeLoadingIndicator();
@@ -700,16 +815,30 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     // Get the AI response
                     String response = get();
 
-                    // Process the AI response
-                    processAiResponse(response);
+                    // If the reply was streamed live but nothing was actually shown (e.g. an error,
+                    // or no partial deltas), fall back to rendering the final text normally.
+                    boolean streamed = lastResponseStreamed && streamedChars > 0;
+
+                    // CLI agents may answer with a jmeter-ops edit block — handle it specially
+                    // (preview, confirm, apply) instead of just printing the JSON.
+                    if (isCliModelSelected() && FencedOpsExtractor.hasOps(response)) {
+                        handleCliOpsResponse(response, streamed);
+                    } else if (streamed && response != null && response.startsWith("Error:")) {
+                        // The reply streamed some text but ended in an error — surface it instead of
+                        // leaving the user staring at a half-finished message with no explanation.
+                        processAiResponse(response);
+                    } else if (streamed) {
+                        // Already rendered incrementally; just separate from the next message.
+                        appendStreamingNewline();
+                    } else {
+                        // Process the AI response
+                        processAiResponse(response);
+                    }
 
                     // Add the AI response to the conversation history
                     conversationHistory.add(response);
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
+                } catch (java.util.concurrent.CancellationException e) {
+                    log.info("Request was cancelled by user");
                 } catch (InterruptedException | ExecutionException e) {
                     log.error("Error getting AI response", e);
 
@@ -724,14 +853,62 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     } catch (BadLocationException ex) {
                         log.error("Error displaying error message", ex);
                     }
-
-                    // Re-enable input
-                    messageField.setEnabled(true);
-                    sendButton.setEnabled(true);
-                    messageField.requestFocusInWindow();
+                } finally {
+                    setRequestInProgress(false);
                 }
             }
-        }.execute();
+        };
+        activeWorker = worker;
+        setRequestInProgress(true);
+        worker.execute();
+    }
+
+    /** Toggles input/send/stop controls for an in-flight async request. */
+    private void setRequestInProgress(boolean inProgress) {
+        messageField.setEnabled(!inProgress);
+        sendButton.setEnabled(!inProgress);
+        if (stopButton != null) {
+            stopButton.setVisible(inProgress);
+        }
+        if (newChatButton != null) {
+            newChatButton.setEnabled(!inProgress); // avoid resetting history mid-request
+        }
+        if (rollbackButton != null) {
+            rollbackButton.setEnabled(!inProgress);
+        }
+        if (!inProgress) {
+            activeWorker = null;
+            messageField.requestFocusInWindow();
+        }
+    }
+
+    /** Cancels the in-flight chat request and force-kills any CLI subprocess. */
+    private void cancelActiveRequest() {
+        SwingWorker<?, ?> w = activeWorker;
+        if (w != null) {
+            w.cancel(true);
+        }
+        // Kill any live CLI process tree (the worker interrupt alone won't stop the child).
+        try { qwenCodeCliService.cancel(); } catch (RuntimeException ignored) { /* best effort */ }
+        try { gigaCodeCliService.cancel(); } catch (RuntimeException ignored) { /* best effort */ }
+        removeLoadingIndicator();
+        try {
+            messageProcessor.appendMessage(chatArea.getStyledDocument(),
+                    "Запрос прерван.", Color.GRAY, false);
+        } catch (BadLocationException ignored) {
+            // non-fatal
+        }
+        setRequestInProgress(false);
+    }
+
+    /** Cancels in-flight work and kills CLI subprocesses; call when the panel is being closed. */
+    public void shutdown() {
+        SwingWorker<?, ?> w = activeWorker;
+        if (w != null) {
+            w.cancel(true);
+        }
+        try { qwenCodeCliService.cancel(); } catch (RuntimeException ignored) { /* best effort */ }
+        try { gigaCodeCliService.cancel(); } catch (RuntimeException ignored) { /* best effort */ }
     }
 
     /**
@@ -1311,7 +1488,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     removeLoadingIndicator();
                     try {
                         messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Failed to process @plan command. Please try again.",
+                                "Не удалось выполнить команду @plan. Попробуйте ещё раз.",
                                 Color.RED, false);
                     } catch (BadLocationException ex) {
                         log.error("Error displaying @plan error message", ex);
@@ -1342,7 +1519,12 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         return new LintCommandHandler(getServiceForSelectedModel()).undoLastRename();
                     case WRAP:
                         return WrapUndoRedoHandler.getInstance().undoLastWrap();
+                    case CLI_OPS:
+                        return undoCliOps();
                     default:
+                        if (OpsUndoStore.canUndo()) {
+                            return undoCliOps();
+                        }
                         String planRollback = PlanCommandHandler.undoLastAppliedPlan();
                         if (!planRollback.startsWith("Nothing")) {
                             return planRollback;
@@ -1363,13 +1545,18 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             protected void done() {
                 try {
                     removeLoadingIndicator();
-                    processAiResponse(get());
+                    String result = get();
+                    // The handlers use an English "Nothing..." sentinel for chaining — show it in Russian.
+                    if (result != null && result.startsWith("Nothing")) {
+                        result = "Нечего откатывать.";
+                    }
+                    processAiResponse(result);
                 } catch (InterruptedException | ExecutionException e) {
                     log.error("Error processing @rollback command", e);
                     removeLoadingIndicator();
                     try {
                         messageProcessor.appendMessage(chatArea.getStyledDocument(),
-                                "Failed to process @rollback command. Please try again.",
+                                "Не удалось выполнить команду @rollback. Попробуйте ещё раз.",
                                 Color.RED, false);
                     } catch (BadLocationException ex) {
                         log.error("Error displaying @rollback error message", ex);
@@ -1539,6 +1726,8 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
      */
     private String getAiResponse(String message) {
         log.info("Getting AI response for message: {}", message);
+        lastResponseStreamed = false;
+        streamedChars = 0;
         List<String> requestConversation = buildConversationForAi();
 
         // Get the currently selected model from the dropdown
@@ -1573,10 +1762,313 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             log.info("Using DeepSeek model: {}", deepSeekModelId);
             deepSeekService.setModel(deepSeekModelId);
             return deepSeekService.generateResponse(requestConversation);
+        } else if (selectedModel.startsWith("qwen-cli:")) {
+            String m = selectedModel.substring("qwen-cli:".length());
+            log.info("Using Qwen Code CLI, model: {}", m);
+            return runCliProvider(qwenCodeCliService, requestConversation, m);
+        } else if (selectedModel.startsWith("gigacode-cli:")) {
+            String m = selectedModel.substring("gigacode-cli:".length());
+            log.info("Using GigaCode CLI, model: {}", m);
+            return runCliProvider(gigaCodeCliService, requestConversation, m);
         }
 
         log.warn("Unsupported model prefix: {}, fallback to OpenAI", selectedModel);
         return openAiService.generateResponse(requestConversation);
+    }
+
+    /** Rolls back the last CLI ops batch on the EDT. */
+    private String undoCliOps() {
+        if (!OpsUndoStore.canUndo()) {
+            return "Nothing to rollback.";
+        }
+        final int[] count = {0};
+        Runnable body = () -> count[0] = OpsUndoStore.undoLast();
+        if (SwingUtilities.isEventDispatchThread()) {
+            body.run();
+        } else {
+            try {
+                SwingUtilities.invokeAndWait(body);
+            } catch (Exception e) {
+                log.error("Failed to undo CLI ops", e);
+                return "Не удалось откатить изменения агента: " + e.getMessage();
+            }
+        }
+        GuiPackage gp = GuiPackage.getInstance();
+        if (gp != null && gp.getMainFrame() != null) {
+            gp.getMainFrame().repaint();
+        }
+        lastCommandType = LastCommandType.NONE;
+        return "Откат изменений агента выполнен (операций: " + count[0] + ").";
+    }
+
+    /**
+     * Runs a CLI provider, streaming the reply into the chat live when the provider supports it
+     * (incremental text instead of a multi-second frozen wait). Falls back to a blocking call
+     * otherwise. Always returns the full final reply for history/ops handling.
+     */
+    private String runCliProvider(CliAiService svc, List<String> fullConversation, String model) {
+        // With an active session the agent already has the history; send only the new turn (plus
+        // tree context if it changed). Otherwise send the full conversation with protocol + context.
+        List<String> conv = svc.isSessionActive()
+                ? buildCliSessionTurn()
+                : withCliOpsContext(fullConversation);
+
+        if (svc.supportsStreaming()) {
+            lastResponseStreamed = true;
+            SwingUtilities.invokeLater(() -> {
+                removeLoadingIndicator();
+                cliStreamStartOffset = chatArea.getStyledDocument().getLength();
+            });
+            return svc.generateResponseStreaming(conv, model,
+                    delta -> SwingUtilities.invokeLater(() -> appendStreamingDelta(delta)));
+        }
+        return svc.generateResponse(conv, model);
+    }
+
+    /** Current plan tree + revision hash, or {@code [tree, revision]} with empties if unavailable. */
+    private String[] currentTreeContext() {
+        String tree = "";
+        String revision = null;
+        try {
+            GuiPackage gp = GuiPackage.getInstance();
+            if (gp != null && gp.getTreeModel() != null
+                    && gp.getTreeModel().getRoot() instanceof JMeterTreeNode) {
+                JMeterTreeNode root = JMeterPlanSerializer.planRoot(
+                        (JMeterTreeNode) gp.getTreeModel().getRoot());
+                JMeterPlanSerializer.SerializedPlan plan = JMeterPlanSerializer.serialize(root);
+                tree = plan.toReadableTree();
+                revision = plan.revisionHash();
+                log.info("CLI tree context (revision={}):\n{}", revision, tree);
+            }
+        } catch (Exception e) {
+            log.debug("Failed to build CLI tree context", e);
+        }
+        return new String[] {tree, revision};
+    }
+
+    /**
+     * Builds a single-turn request for an active CLI session: just the latest user message, plus the
+     * tree context only when the tree changed since the last send (the agent still holds the rest).
+     */
+    private List<String> buildCliSessionTurn() {
+        List<String> turn = new ArrayList<>(1);
+        if (conversationHistory.isEmpty()) {
+            return turn;
+        }
+        String latest = conversationHistory.get(conversationHistory.size() - 1);
+        String[] ctx = currentTreeContext();
+        String tree = ctx[0];
+        String revision = ctx[1];
+        this.lastCliOpsRevision = revision; // apply guard always uses the live revision
+        if (revision != null && !revision.equals(lastSentTreeRevision)) {
+            latest = latest + "\n\n" + OpsProtocol.buildContextBlock(tree, revision);
+            this.lastSentTreeRevision = revision;
+        }
+        turn.add(latest);
+        return turn;
+    }
+
+    /** Appends a streamed text chunk directly to the chat document (EDT only). */
+    private void appendStreamingDelta(String delta) {
+        if (delta == null || delta.isEmpty()) {
+            return;
+        }
+        try {
+            javax.swing.text.StyledDocument doc = chatArea.getStyledDocument();
+            doc.insertString(doc.getLength(), delta, null);
+            chatArea.setCaretPosition(doc.getLength());
+            streamedChars += delta.length();
+        } catch (BadLocationException e) {
+            log.debug("Failed to append streaming delta", e);
+        }
+    }
+
+    /** Removes the text streamed live this turn (used to hide raw ops JSON before showing results). */
+    private void clearStreamedRegion() {
+        try {
+            javax.swing.text.StyledDocument doc = chatArea.getStyledDocument();
+            int from = Math.max(0, Math.min(cliStreamStartOffset, doc.getLength()));
+            if (doc.getLength() > from) {
+                doc.remove(from, doc.getLength() - from);
+            }
+        } catch (BadLocationException e) {
+            log.debug("Failed to clear streamed region", e);
+        }
+    }
+
+    /** Adds a blank line after a streamed reply so the next message is visually separated. */
+    private void appendStreamingNewline() {
+        try {
+            javax.swing.text.StyledDocument doc = chatArea.getStyledDocument();
+            doc.insertString(doc.getLength(), "\n\n", null);
+        } catch (BadLocationException e) {
+            log.debug("Failed to append streaming newline", e);
+        }
+    }
+
+    /**
+     * Drops {@code @}-command turns (e.g. {@code @rollback}, {@code @plan}) from the history sent to
+     * a CLI agent. Those are handled by the plugin, not the model; leaving them in pollutes the
+     * agent's context (it starts answering about {@code @rollback}) and skews role alternation.
+     */
+    private List<String> stripCommandTurns(List<String> base) {
+        List<String> out = new ArrayList<>();
+        if (base == null) {
+            return out;
+        }
+        for (String turn : base) {
+            if (turn != null && turn.trim().startsWith("@")) {
+                continue;
+            }
+            out.add(turn);
+        }
+        return out;
+    }
+
+    /**
+     * The list of model ids to offer for a CLI provider, from {@code <prefix>.cli.models}
+     * (comma/space separated). Returns {@code ["default"]} when unset — meaning "use whatever model
+     * the CLI itself is configured with" (no {@code --model} override).
+     */
+    private List<String> cliModelList(String prefix) {
+        String raw = AiConfig.getProperty(prefix + ".cli.models", "").trim();
+        List<String> models = new ArrayList<>();
+        if (!raw.isEmpty()) {
+            for (String part : raw.split("[,\\s]+")) {
+                if (!part.trim().isEmpty()) {
+                    models.add(part.trim());
+                }
+            }
+        }
+        if (models.isEmpty()) {
+            models.add("default");
+        }
+        return models;
+    }
+
+    /** Returns the skill id if the message is a skill command (@lint/@plan/@optimize), else null. */
+    private String skillCommandId(String message) {
+        if (message == null) {
+            return null;
+        }
+        String t = message.trim().toLowerCase();
+        if (t.startsWith("@lint")) return "lint";
+        if (t.startsWith("@plan")) return "plan";
+        if (t.startsWith("@optimize")) return "optimize";
+        return null;
+    }
+
+    /** Builds the prompt sent to the CLI agent for a skill: its (editable) instructions + user args. */
+    private String composeSkillPrompt(String skillId, String message) {
+        String args = message == null ? "" : message.trim();
+        int sp = args.indexOf(' ');
+        args = sp >= 0 ? args.substring(sp + 1).trim() : "";
+        String prompt = SkillService.getPrompt(skillId);
+        if (!args.isEmpty()) {
+            prompt = prompt + "\n\nЗапрос пользователя: " + args;
+        }
+        return prompt;
+    }
+
+    /**
+     * The legacy "Контекст" toggle + mode selector only affect cloud providers; CLI agents always
+     * get the tree via the ops path. Hide them when a CLI model is selected to avoid confusion.
+     */
+    private void updateContextControlsVisibility() {
+        boolean cloud = !isCliModelSelected();
+        if (contextToggle != null) {
+            contextToggle.setVisible(cloud);
+        }
+        if (contextModeSelector != null) {
+            contextModeSelector.setVisible(cloud);
+        }
+    }
+
+    /** Whether the currently selected dropdown model is a local CLI agent. */
+    private boolean isCliModelSelected() {
+        Object sel = modelSelector == null ? null : modelSelector.getSelectedItem();
+        if (!(sel instanceof String)) {
+            return false;
+        }
+        String m = (String) sel;
+        return m.startsWith("qwen-cli:") || m.startsWith("gigacode-cli:");
+    }
+
+    /**
+     * Augments the request for a CLI agent with the jmeter-ops protocol instructions and the current
+     * tree (with #ids and a revision hash). The revision is remembered so a later apply can reject
+     * stale-id edits made against a tree that has since changed.
+     */
+    private List<String> withCliOpsContext(List<String> base) {
+        List<String> conv = stripCommandTurns(base);
+        if (conv.isEmpty()) {
+            return conv;
+        }
+        String[] ctx = currentTreeContext();
+        String tree = ctx[0];
+        String revision = ctx[1];
+        this.lastCliOpsRevision = revision;
+        this.lastSentTreeRevision = revision;
+
+        // Prepend protocol to the first turn, append fresh tree context to the last user turn.
+        conv.set(0, OpsProtocol.SYSTEM_PROMPT + "\n" + conv.get(0));
+        int last = conv.size() - 1;
+        conv.set(last, conv.get(last) + "\n\n" + OpsProtocol.buildContextBlock(tree, revision));
+        return conv;
+    }
+
+    /**
+     * Handles a CLI agent reply that carries a {@code jmeter-ops} edit block: shows the textual part,
+     * parses/validates the ops, previews them, asks for confirmation, applies on the EDT, and reports
+     * the outcome. Read-only {@code get_element} batches are applied without a confirmation prompt.
+     */
+    private void handleCliOpsResponse(String response, boolean narrativeAlreadyShown) {
+        // Never show the raw ops JSON to the user. The narrative is the text minus the fenced block.
+        String narrative = response.replaceAll(
+                "(?s)```[ \\t]*[Jj][Mm][Ee][Tt][Ee][Rr]-[Oo][Pp][Ss].*?```", "").trim();
+        if (narrativeAlreadyShown) {
+            // The block streamed live — wipe everything streamed this turn and re-render clean text.
+            clearStreamedRegion();
+        }
+        if (!narrative.isEmpty()) {
+            processAiResponse(narrative);
+        }
+
+        String payload = FencedOpsExtractor.extract(response);
+        List<PlanOp> ops;
+        try {
+            ops = PlanOpsParser.parse(payload);
+            if (ops.isEmpty()) {
+                // Agent emitted an empty block (no changes) — purely informational, nothing to do.
+                return;
+            }
+            PlanOpsValidator.validate(ops);
+        } catch (OpsException e) {
+            StringBuilder msg = new StringBuilder("Не удалось применить операции: " + e.getMessage());
+            for (String p : e.problems()) {
+                msg.append("\n  • ").append(p);
+            }
+            processAiResponse(msg.toString());
+            return;
+        }
+
+        boolean mutating = ops.stream().anyMatch(o -> o.op() != null && !o.op().isReadOnly());
+        if (mutating) {
+            String preview = OpsPreviewRenderer.render(ops);
+            int choice = JOptionPane.showConfirmDialog(this, preview,
+                    "Применить изменения агента?", JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+            if (choice != JOptionPane.OK_OPTION) {
+                processAiResponse("Изменения отклонены пользователем.");
+                return;
+            }
+        }
+
+        OpsApplyResult result = OpsApplier.apply(ops, lastCliOpsRevision);
+        if (result.isMutated()) {
+            lastCommandType = LastCommandType.CLI_OPS;
+        }
+        processAiResponse(result.summary());
     }
 
     private List<String> buildConversationForAi() {
@@ -1592,6 +2084,13 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     "Выдавай только финальный ответ — без заголовков шагов и без пересказа вопроса.\n" +
                     "";
             requestConversation.set(0, systemInstruction + "\nВопрос: " + requestConversation.get(0));
+        }
+
+        // CLI providers receive the tree context (with #ids + revision) via withCliOpsContext /
+        // session turns. Skip this legacy block for them — otherwise the tree is sent twice, with two
+        // different id numberings (this block serializes from getRoot(), the ops path from planRoot()).
+        if (isCliModelSelected()) {
+            return requestConversation;
         }
 
         if (!isChatContextEnabled()) {
@@ -1972,6 +2471,12 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         }
         if (selectedModel.startsWith("deepseek:")) {
             return deepSeekService;
+        }
+        if (selectedModel.startsWith("qwen-cli:")) {
+            return qwenCodeCliService;
+        }
+        if (selectedModel.startsWith("gigacode-cli:")) {
+            return gigaCodeCliService;
         }
         return openAiService;
     }

@@ -108,6 +108,9 @@ replay_pid*
 **/META-INF/
 !.mvn/wrapper/maven-wrapper.jar
 
+# Local working config (use jmeter-ai-sample.properties as the template)
+user.properties
+
 ### STS ###
 .apt_generated
 .classpath
@@ -132,3 +135,7 @@ replay_pid*
 /.nb-gradle/
 .vscode/settings.json
 .DS_Store
+
+# Graphify output/cache (build artifacts)
+graphify-out/
+.graphify_chunks.json

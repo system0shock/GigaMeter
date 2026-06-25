@@ -60,8 +60,9 @@ public class VersionUtilsTest {
     @Test
     public void testGetVersionReturnsValidVersion() {
         String version = VersionUtils.getVersion();
-        // The version should be 1.0.10 (either from pom.properties or default)
-        assertEquals("1.0.10", version, "Version should be 1.0.10");
+        // In the test environment (no jar manifest/pom.properties), getVersion falls back to the
+        // hardcoded DEFAULT_VERSION.
+        assertEquals("0.5.0-beta", version, "Version should match VersionUtils.DEFAULT_VERSION");
     }
     
     /**

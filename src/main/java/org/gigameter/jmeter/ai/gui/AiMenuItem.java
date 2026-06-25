@@ -4,9 +4,11 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.gui.util.JMeterToolBar;
 import org.gigameter.jmeter.ai.service.AiService;
+import org.gigameter.jmeter.ai.service.GigaCodeCliService;
 import org.gigameter.jmeter.ai.service.OpenAiService;
 import org.gigameter.jmeter.ai.service.DeepSeekService;
 import org.gigameter.jmeter.ai.service.GigaChatService;
+import org.gigameter.jmeter.ai.service.QwenCodeCliService;
 import org.gigameter.jmeter.ai.utils.AiConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,6 +86,13 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
                 if (apiKey != null && !apiKey.isEmpty() && model != null && !model.isEmpty()) {
                     return new DeepSeekService();
                 }
+            } else if ("cli".equalsIgnoreCase(serviceType) || "qwen".equalsIgnoreCase(serviceType)
+                    || "qwen-cli".equalsIgnoreCase(serviceType)) {
+                // "cli" kept as a backwards-compatible alias for the Qwen Code CLI provider.
+                return new QwenCodeCliService();
+            } else if ("gigacode".equalsIgnoreCase(serviceType)
+                    || "gigacode-cli".equalsIgnoreCase(serviceType)) {
+                return new GigaCodeCliService();
             }
         } catch (Exception e) {
             log.error("Error creating AI service", e);
@@ -208,6 +217,7 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
 
             if (currentChatPanel != null && splitPane != null && splitPane.isShowing()) {
                 // Panel is currently shown, remove it
+                currentChatPanel.shutdown(); // cancel any in-flight request + kill CLI subprocess
                 Container contentPane = mainFrame.getContentPane();
                 contentPane.remove(splitPane);
 

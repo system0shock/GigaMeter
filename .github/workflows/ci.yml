@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Run unit tests
+        run: mvn -B test
+
+  jmeter-smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        jmeter-version: ["5.5", "5.6.2"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build plugin
+        run: mvn -B -DskipTests package
+
+      - name: Run JMeter smoke test
+        env:
+          JMETER_VERSION: ${{ matrix.jmeter-version }}
+        shell: pwsh
+        run: ./ci/smoke/run-smoke.ps1
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-${{ matrix.jmeter-version }}
+          path: |
+            ci/smoke/out/
+
+  jmeter-integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        jmeter-version: ["5.6.2"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build plugin
+        run: mvn -B -DskipTests package
+
+      - name: Run JMeter integration test
+        env:
+          JMETER_VERSION: ${{ matrix.jmeter-version }}
+        shell: pwsh
+        run: ./ci/integration/run-integration.ps1
+
+      - name: Upload integration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-${{ matrix.jmeter-version }}
+          path: |
+            ci/integration/out/

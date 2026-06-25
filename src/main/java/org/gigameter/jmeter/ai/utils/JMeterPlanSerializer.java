@@ -65,6 +65,53 @@ public class JMeterPlanSerializer {
         return serialize(root, DEFAULT_MAX_ELEMENTS, DEFAULT_MAX_DEPTH);
     }
 
+    /**
+     * Resolves the node to serialize/edit from: the JMeter tree's {@code getRoot()} is a structural
+     * container whose child is the actual Test Plan. Serializing from the container makes {@code #1}
+     * a phantom and shifts every id, which confuses agents (they add Thread Groups under the phantom
+     * → detached). This returns the Test Plan node so {@code #1} is the Test Plan. Falls back to the
+     * given root if no Test Plan child is found. Both the prompt context and the apply engine must
+     * use this same root so ids line up.
+     */
+    public static JMeterTreeNode planRoot(JMeterTreeNode root) {
+        if (root == null) {
+            return null;
+        }
+        JMeterTreeNode node = root;
+        // JMeter's getRoot() can be a structural node above the visible Test Plan, and in practice the
+        // root Test Plan itself wraps another Test Plan node (observed #1 → #2, both TestPlan). Descend
+        // to the DEEPEST Test Plan so the visible plan is the serialization root and ids line up.
+        if (!isTestPlan(node)) {
+            JMeterTreeNode tp = firstTestPlanChild(node);
+            if (tp != null) {
+                node = tp;
+            }
+        }
+        while (isTestPlan(node)) {
+            JMeterTreeNode childTp = firstTestPlanChild(node);
+            if (childTp == null) {
+                break;
+            }
+            node = childTp;
+        }
+        return node;
+    }
+
+    private static JMeterTreeNode firstTestPlanChild(JMeterTreeNode node) {
+        for (int i = 0; i < node.getChildCount(); i++) {
+            Object child = node.getChildAt(i);
+            if (child instanceof JMeterTreeNode && isTestPlan((JMeterTreeNode) child)) {
+                return (JMeterTreeNode) child;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isTestPlan(JMeterTreeNode node) {
+        TestElement el = node.getTestElement();
+        return el != null && el.getClass().getSimpleName().equals("TestPlan");
+    }
+
     /** Convenience: returns just the compact JSON string. */
     public static String toCompactJson(JMeterTreeNode root, int maxElements, int maxDepth) {
         return serialize(root, maxElements, maxDepth).toJson();
@@ -111,10 +158,27 @@ public class JMeterPlanSerializer {
         /**
          * Renders the plan as a human-readable indented tree for AI prompts.
          * Converts JMeter class names to plain labels and formats key props inline.
-         * Much easier for LLMs to interpret than raw JSON.
+         * Each line is prefixed with {@code #<id>} — the same id present in {@link #nodeById},
+         * which CLI agents reference in {@code jmeter-ops} operations. Much easier for LLMs to
+         * interpret than raw JSON.
          */
         public String toReadableTree() {
             return buildReadableTree(elements, truncated);
+        }
+
+        /**
+         * A stable fingerprint of the plan's structure (ids, types, names, and tracked props). Used
+         * to detect that the tree changed under the agent between context export and op apply, so a
+         * stale node id can be rejected with "re-fetch tree" instead of editing the wrong element.
+         */
+        public String revisionHash() {
+            StringBuilder sb = new StringBuilder();
+            for (ElementEntry e : elements) {
+                sb.append(e.id).append('|').append(e.depth).append('|')
+                  .append(e.type).append('|').append(e.name).append('|')
+                  .append(e.props).append('\n');
+            }
+            return Integer.toHexString(sb.toString().hashCode());
         }
     }
 
@@ -260,12 +324,14 @@ public class JMeterPlanSerializer {
 
     private static String buildReadableTree(List<ElementEntry> entries, boolean truncated) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Структура JMeter тест-плана (дерево элементов, отступы = вложенность):\n");
+        sb.append("Структура JMeter тест-плана (дерево элементов, отступы = вложенность; "
+                + "#N — id элемента для операций jmeter-ops):\n");
         for (ElementEntry e : entries) {
             String indent = "  ".repeat(Math.max(0, e.depth));
             String label = friendlyTypeName(e.type);
             String inline = inlineProps(e.type, e.props);
-            sb.append(indent).append("└─ [").append(label).append("] \"").append(e.name).append("\"");
+            sb.append("#").append(e.id).append(" ").append(indent)
+              .append("└─ [").append(label).append("] \"").append(e.name).append("\"");
             if (!inline.isEmpty()) sb.append(" | ").append(inline);
             sb.append("\n");
         }

@@ -6,7 +6,7 @@
 
     <groupId>org.gigameter</groupId>
     <artifactId>jmeter-agent</artifactId>
-    <version>Alpha-0.1</version>
+    <version>0.5.0-beta</version>
     <name>jmeter-agent</name>
     <description>GigaMeter - JMeter Agent for performance engineers</description>
 
@@ -27,8 +27,8 @@
     </developers>
 
     <properties>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     </properties>
@@ -38,6 +38,14 @@
             <groupId>com.openai</groupId>
             <artifactId>openai-java</artifactId>
             <version>0.31.0</version>
+        </dependency>
+
+        <!-- Provided by JMeter at runtime (bundled in lib/); used by CLI JSON response parsing -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>2.15.2</version>
+            <scope>provided</scope>
         </dependency>
 
         <dependency>
@@ -134,8 +142,8 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
+                    <source>11</source>
+                    <target>11</target>
                     <encoding>UTF-8</encoding>
                 </configuration>
             </plugin>
