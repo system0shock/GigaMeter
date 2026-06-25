@@ -218,8 +218,8 @@ public class MessageProcessor {
         }
         
         // Create a copy button
-        JButton copyButton = new JButton("РљРѕРїРёСЂРѕРІР°С‚СЊ");
-        copyButton.setToolTipText("РЎРєРѕРїРёСЂРѕРІР°С‚СЊ РєРѕРґ РІ Р±СѓС„РµСЂ РѕР±РјРµРЅР°");
+        JButton copyButton = new JButton("Копировать");
+        copyButton.setToolTipText("Скопировать код в буфер обмена");
         copyButton.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -228,8 +228,8 @@ public class MessageProcessor {
                     new java.awt.datatransfer.StringSelection(code), null);
                 
                 // Provide visual feedback
-                copyButton.setText("РЎРєРѕРїРёСЂРѕРІР°РЅРѕ");
-                Timer timer = new Timer(1500, event -> copyButton.setText("РљРѕРїРёСЂРѕРІР°С‚СЊ"));
+                copyButton.setText("Скопировано");
+                Timer timer = new Timer(1500, event -> copyButton.setText("Копировать"));
                 timer.setRepeats(false);
                 timer.start();
             }
@@ -288,14 +288,14 @@ public class MessageProcessor {
             // Process markdown formatting
             processMarkdownMessage(doc, message);
         } else {
-            // Check if the message starts with "Р’С‹: " to make it bold
-            if (message.startsWith("Р’С‹: ")) {
-                // Create a bold style for "Р’С‹:"
+            // Check if the message starts with "Вы: " to make it bold
+            if (message.startsWith("Вы: ")) {
+                // Create a bold style for "Вы:"
                 SimpleAttributeSet boldStyle = new SimpleAttributeSet(messageStyle);
                 StyleConstants.setBold(boldStyle, true);
-                
-                // Insert "Р’С‹:" with bold style
-                doc.insertString(doc.getLength(), "Р’С‹:", boldStyle);
+
+                // Insert "Вы:" with bold style
+                doc.insertString(doc.getLength(), "Вы:", boldStyle);
                 
                 // Insert the rest of the message with regular style
                 doc.insertString(doc.getLength(), message.substring(3) + "\n", messageStyle);

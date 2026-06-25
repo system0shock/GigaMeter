@@ -36,8 +36,8 @@ public class TreeNavigationButtons {
         } catch (Exception e) {
             log.error("Error loading PNG icons", e);
             // Fallback to text buttons
-            upButton = new JButton("в†‘");
-            downButton = new JButton("в†“");
+            upButton = new JButton("↑");
+            downButton = new JButton("↓");
             
             // Configure buttons
             configureButton(upButton, "Navigate Up");

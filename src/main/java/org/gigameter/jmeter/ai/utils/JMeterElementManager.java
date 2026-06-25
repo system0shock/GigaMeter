@@ -106,6 +106,31 @@ public class JMeterElementManager {
         ELEMENT_CLASS_MAP.put("threadgroup", new ElementClassInfo("org.apache.jmeter.threads.ThreadGroup",
                 "org.apache.jmeter.threads.gui.ThreadGroupGui"));
 
+        // BlazeMeter / jmeter-plugins thread groups & elements (industry-standard add-ons).
+        // Available only when the corresponding plugin jars are installed in lib/ext; otherwise
+        // creation fails gracefully (Class.forName misses) and the op is reported as a failure.
+        ELEMENT_CLASS_MAP.put("concurrencythreadgroup", new ElementClassInfo(
+                "com.blazemeter.jmeter.threads.concurrency.ConcurrencyThreadGroup",
+                "com.blazemeter.jmeter.threads.concurrency.ConcurrencyThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("arrivalsthreadgroup", new ElementClassInfo(
+                "com.blazemeter.jmeter.threads.arrivals.ArrivalsThreadGroup",
+                "com.blazemeter.jmeter.threads.arrivals.ArrivalsThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("steppingthreadgroup", new ElementClassInfo(
+                "kg.apc.jmeter.threads.SteppingThreadGroup",
+                "kg.apc.jmeter.threads.SteppingThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("ultimatethreadgroup", new ElementClassInfo(
+                "kg.apc.jmeter.threads.UltimateThreadGroup",
+                "kg.apc.jmeter.threads.UltimateThreadGroupGui"));
+        ELEMENT_CLASS_MAP.put("throughputshapingtimer", new ElementClassInfo(
+                "kg.apc.jmeter.timers.VariableThroughputTimer",
+                "kg.apc.jmeter.timers.VariableThroughputTimerGui"));
+        ELEMENT_CLASS_MAP.put("dummysampler", new ElementClassInfo(
+                "kg.apc.jmeter.samplers.DummySampler",
+                "kg.apc.jmeter.samplers.DummySamplerGui"));
+        ELEMENT_CLASS_MAP.put("perfmoncollector", new ElementClassInfo(
+                "kg.apc.jmeter.vizualizers.PerfMonCollector",
+                "kg.apc.jmeter.vizualizers.PerfMonGui"));
+
         // Assertions
         ELEMENT_CLASS_MAP.put("responseassert", new ElementClassInfo("org.apache.jmeter.assertions.ResponseAssertion",
                 "org.apache.jmeter.assertions.gui.AssertionGui"));
@@ -430,6 +455,26 @@ public class JMeterElementManager {
      * @return true if the element was added successfully, false otherwise
      */
     public static boolean addElement(String elementType, String elementName) {
+        GuiPackage guiPackage = GuiPackage.getInstance();
+        if (guiPackage == null) {
+            log.error("GuiPackage is null, cannot add element");
+            return false;
+        }
+        JMeterTreeNode currentNode = guiPackage.getTreeListener().getCurrentNode();
+        if (currentNode == null) {
+            log.error("No node is currently selected in the test plan");
+            return false;
+        }
+        return addElementToNode(elementType, elementName, currentNode);
+    }
+
+    /**
+     * Adds a new element of {@code elementType} as a child of {@code parentNode} explicitly, instead
+     * of relying on the current tree selection. Used by the CLI ops engine, where the parent is
+     * resolved by node id and {@code setSelectionPath} does not update {@code getCurrentNode()}
+     * synchronously (which would otherwise add the element under the wrong parent).
+     */
+    public static boolean addElementToNode(String elementType, String elementName, JMeterTreeNode currentNode) {
         try {
             log.info("Adding element of type: {} with name: {}", elementType, elementName);
 
@@ -439,10 +484,8 @@ public class JMeterElementManager {
                 return false;
             }
 
-            // Get the currently selected node
-            JMeterTreeNode currentNode = guiPackage.getTreeListener().getCurrentNode();
             if (currentNode == null) {
-                log.error("No node is currently selected in the test plan");
+                log.error("No target node provided for the new element");
                 return false;
             }
             log.info("Current node: {}", currentNode.getName());

@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
 public class VersionUtils {
     private static final Logger log = LoggerFactory.getLogger(VersionUtils.class);
     // Hardcoded fallback version that matches pom.xml
-    private static final String DEFAULT_VERSION = "1.0.10";
+    private static final String DEFAULT_VERSION = "0.5.0-beta";
     private static final String POM_PROPERTIES_PATH = "/META-INF/maven/org.gigameter/jmeter-agent/pom.properties";
     
     private static String version = null;

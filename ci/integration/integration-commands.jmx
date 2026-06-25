@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.2">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="CI Integration Plan" enabled="true">
+      <stringProp name="TestPlan.comments">Integration checks for plugin command handlers in non-GUI mode.</stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
+        <collectionProp name="Arguments.arguments"/>
+      </elementProp>
+      <stringProp name="TestPlan.user_define_classpath"/>
+    </TestPlan>
+    <hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Integration Thread Group" enabled="true">
+        <stringProp name="ThreadGroup.on_sample_error">stoptestnow</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controller" enabled="true">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">1</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">1</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">1</stringProp>
+        <longProp name="ThreadGroup.start_time">1700000000000</longProp>
+        <longProp name="ThreadGroup.end_time">1700000000000</longProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"/>
+        <stringProp name="ThreadGroup.delay"/>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+      </ThreadGroup>
+      <hashTree>
+        <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Plugin command integration" enabled="true">
+          <stringProp name="cacheKey">ci-integration-commands</stringProp>
+          <stringProp name="filename"/>
+          <stringProp name="parameters"/>
+          <stringProp name="script">import org.gigameter.jmeter.ai.plan.PlanCommandHandler
+import org.gigameter.jmeter.ai.service.AiService
+
+class StubAiService implements AiService {
+    String generateResponse(List&lt;String&gt; conversation) {
+        return '{' +
+                '"thread_group":{"name":"API TG","users":10,"ramp_up_seconds":5,"duration_seconds":60},' +
+                '"defaults":{"base_url":"https://api.example.com"},' +
+                '"steps":[{"name":"Login","method":"POST","path":"/auth/login","assert":{"status_code":200}}]' +
+                '}'
+    }
+
+    String generateResponse(List&lt;String&gt; conversation, String model) {
+        return generateResponse(conversation)
+    }
+
+    String getName() {
+        return "stub"
+    }
+}
+
+def handler = new PlanCommandHandler(new StubAiService())
+def preview = handler.processPlanCommand("@plan login flow")
+if (!(preview.contains("AI Plan Preview") &amp;&amp; preview.contains("POST /auth/login"))) {
+    throw new AssertionError("Unexpected @plan preview: " + preview)
+}
+
+def applyResult = handler.processPlanCommand("@plan apply")
+if (!applyResult.toLowerCase().contains("jmeter gui")) {
+    throw new AssertionError("Unexpected @plan apply result in non-GUI mode: " + applyResult)
+}
+
+SampleResult.setResponseCodeOK()
+SampleResult.setResponseMessage("plugin_commands_ok")
+SampleResult.setSuccessful(true)
+SampleResult.setResponseData(("Preview length=" + preview.length() + ", applyResult=" + applyResult), "UTF-8")</stringProp>
+          <stringProp name="scriptLanguage">groovy</stringProp>
+        </JSR223Sampler>
+        <hashTree/>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>
