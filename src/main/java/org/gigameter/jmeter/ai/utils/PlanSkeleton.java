@@ -116,7 +116,7 @@ public final class PlanSkeleton {
         ElementEntry e = elements.get(idx);
         int depth = e.depth;
         StringBuilder sb = new StringBuilder();
-        sb.append(e.type).append("").append(e.name).append("").append(e.props);
+        sb.append(e.type).append("\u0001").append(e.name).append("\u0001").append(e.props);
         int end = JMeterPlanSerializer.subtreeEnd(elements, idx);
         int j = idx + 1;
         while (j < end) {
