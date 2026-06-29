@@ -73,4 +73,43 @@ class PlanSkeletonRenderTest {
         assertTrue(out.contains("раскрыто ниже"));
         assertFalse(out.contains("secret-detail")); // subtree skipped in skeleton
     }
+
+    @Test
+    void representativeLineShowsInlineProps() {
+        List<ElementEntry> l = new ArrayList<>();
+        l.add(e(1, 0, "TestPlan", "Plan"));
+        LinkedHashMap<String, String> props = new LinkedHashMap<>();
+        props.put("HTTPSampler.method", "GET");
+        props.put("HTTPSampler.path", "/api");
+        l.add(new ElementEntry(2, 1, "HTTPSamplerProxy", "Req", props));
+        l.add(new ElementEntry(3, 1, "HTTPSamplerProxy", "Req", props));
+        l.add(new ElementEntry(4, 1, "HTTPSamplerProxy", "Req", props));
+        String out = PlanSkeleton.render(l, 3, Collections.emptySet());
+        // representative line should contain inline summary tokens
+        assertTrue(out.contains("GET"), "expected GET in output:\n" + out);
+        assertTrue(out.contains("/api"), "expected /api in output:\n" + out);
+        // collapsed refs should be present
+        assertTrue(out.contains("≡ #"), "expected collapse refs in output:\n" + out);
+    }
+
+    @Test
+    void expandedSiblingExcludedFromCollapseCount() {
+        List<ElementEntry> l = new ArrayList<>();
+        l.add(e(1, 0, "TestPlan", "Plan"));
+        // 3 identical HeaderManager siblings (empty props -> same hash)
+        l.add(e(2, 1, "HeaderManager", "Auth"));
+        l.add(e(3, 1, "HeaderManager", "Auth"));
+        l.add(e(4, 1, "HeaderManager", "Auth"));
+        Set<Integer> expanded = new HashSet<>();
+        expanded.add(2); // expand the first one
+        String out = PlanSkeleton.render(l, 3, expanded);
+        // expanded one shows marker
+        assertTrue(out.contains("раскрыто ниже"), "expected expanded marker:\n" + out);
+        // only 2 non-expanded siblings remain — below threshold 3, so no collapse
+        assertFalse(out.contains("≡ #"), "expected no collapse refs:\n" + out);
+        // all three ids still appear
+        assertTrue(out.contains("#2"), "expected #2 in output:\n" + out);
+        assertTrue(out.contains("#3"), "expected #3 in output:\n" + out);
+        assertTrue(out.contains("#4"), "expected #4 in output:\n" + out);
+    }
 }

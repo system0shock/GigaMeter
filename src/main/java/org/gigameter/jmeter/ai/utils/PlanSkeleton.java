@@ -48,6 +48,7 @@ public final class PlanSkeleton {
         List<Integer> children = directChildren(elements, idx);
         Map<String, Integer> counts = new HashMap<>();
         for (int ci : children) {
+            if (expanded.contains(elements.get(ci).id)) continue;
             String h = hashes.get(elements.get(ci).id);
             counts.merge(h, 1, Integer::sum);
         }
