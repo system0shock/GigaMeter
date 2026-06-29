@@ -13,7 +13,6 @@ import java.util.concurrent.ExecutionException;
 
 import org.gigameter.jmeter.ai.intellisense.InputBoxIntellisense;
 
-import com.openai.models.Model;
 import org.apache.jorphan.gui.JMeterUIDefaults;
 
 import org.apache.jmeter.control.TransactionController;
@@ -42,13 +41,11 @@ import org.gigameter.jmeter.ai.service.ops.OpsUndoStore;
 import org.gigameter.jmeter.ai.service.ops.PlanOp;
 import org.gigameter.jmeter.ai.service.ops.PlanOpsParser;
 import org.gigameter.jmeter.ai.service.ops.PlanOpsValidator;
-import org.gigameter.jmeter.ai.utils.Models;
 import org.gigameter.jmeter.ai.utils.VersionUtils;
 import org.gigameter.jmeter.ai.optimizer.OptimizeRequestHandler;
 import org.gigameter.jmeter.ai.lint.LintCommandHandler;
 import org.gigameter.jmeter.ai.wrap.WrapCommandHandler;
 import org.gigameter.jmeter.ai.wrap.WrapUndoRedoHandler;
-import org.gigameter.jmeter.ai.service.OpenAiService;
 import org.gigameter.jmeter.ai.service.QwenCodeCliService;
 import org.gigameter.jmeter.ai.service.GigaCodeCliService;
 import org.gigameter.jmeter.ai.service.AiService;
@@ -79,7 +76,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private JComboBox<String> contextModeSelector;
     private List<String> conversationHistory;
     private DeepSeekService deepSeekService;
-    private OpenAiService openAiService;
     private GigaChatService gigaChatService;
     private QwenCodeCliService qwenCodeCliService;
     private GigaCodeCliService gigaCodeCliService;
@@ -124,7 +120,6 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     public AiChatPanel() {
         // Initialize services and utilities
         deepSeekService = new DeepSeekService();
-        openAiService = new OpenAiService();
         gigaChatService = new GigaChatService();
         qwenCodeCliService = new QwenCodeCliService();
         gigaCodeCliService = new GigaCodeCliService();
@@ -169,9 +164,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             String selectedModel = (String) modelSelector.getSelectedItem();
             if (selectedModel != null) {
                 log.info("Model selected from dropdown: {}", selectedModel);
-                if (selectedModel.startsWith("openai:")) {
-                    openAiService.setModel(selectedModel.substring(7));
-                } else if (selectedModel.startsWith("giga:")) {
+                if (selectedModel.startsWith("giga:")) {
                     gigaChatService.setModel(selectedModel.substring(5));
                 } else if (selectedModel.startsWith("deepseek:")) {
                     deepSeekService.setModel(selectedModel.substring(9));
@@ -494,39 +487,10 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                 // Get models from configured services
                 List<String> allModels = new ArrayList<>();
 
-                // Cloud providers (OpenAI/DeepSeek/GigaChat) are hidden by default — the plugin is
+                // Cloud providers (DeepSeek/GigaChat) are hidden by default — the plugin is
                 // CLI-first. Re-enable with gigameter.providers.cloud.enabled=true.
                 boolean cloudEnabled = "true".equalsIgnoreCase(
                         AiConfig.getProperty("gigameter.providers.cloud.enabled", "false"));
-
-                // Add OpenAI models
-                if (cloudEnabled)
-                try {
-                    com.openai.models.ModelListPage openAiModels = Models.getOpenAiModels(openAiService.getClient());
-                    if (openAiModels != null && openAiModels.data() != null) {
-                        // Convert OpenAI models to string IDs
-                        for (Model openAiModel : openAiModels.data()) {
-                            // Only include GPT models and filter out specific model types
-                            if (openAiModel.id().startsWith("gpt") &&
-                                    !openAiModel.id().contains("audio") &&
-                                    !openAiModel.id().contains("tts") &&
-                                    !openAiModel.id().contains("whisper") &&
-                                    !openAiModel.id().contains("davinci") &&
-                                    !openAiModel.id().contains("search") &&
-                                    !openAiModel.id().contains("transcribe") &&
-                                    !openAiModel.id().contains("realtime") &&
-                                    !openAiModel.id().contains("instruct")) {
-
-                                String modelId = "openai:" + openAiModel.id();
-                                allModels.add(modelId);
-                                log.debug("Added OpenAI model to selector: {}", openAiModel.id());
-                            }
-                        }
-                        log.info("Added OpenAI models to selector");
-                    }
-                } catch (Exception e) {
-                    log.error("Error adding OpenAI models: {}", e.getMessage(), e);
-                }
 
                 // Add DeepSeek models
                 if (cloudEnabled)
@@ -584,9 +548,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     // Get the default model ID from configured provider. CLI-first: default to qwen.
                     String defaultService = AiConfig.getProperty("jmeter.ai.service.type", "qwen");
                     String defaultModelId;
-                    if ("openai".equalsIgnoreCase(defaultService)) {
-                        defaultModelId = "openai:" + openAiService.getCurrentModel();
-                    } else if ("deepseek".equalsIgnoreCase(defaultService)) {
+                    if ("deepseek".equalsIgnoreCase(defaultService)) {
                         defaultModelId = "deepseek:" + deepSeekService.getCurrentModel();
                     } else if ("giga".equalsIgnoreCase(defaultService)
                             || "gigachat".equalsIgnoreCase(defaultService)) {
@@ -621,9 +583,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         modelSelector.setSelectedIndex(0);
                         String selectedModel = (String) modelSelector.getSelectedItem();
                         if (selectedModel != null) {
-                            if (selectedModel.startsWith("openai:")) {
-                                openAiService.setModel(selectedModel.substring(7));
-                            } else if (selectedModel.startsWith("giga:")) {
+                            if (selectedModel.startsWith("giga:")) {
                                 gigaChatService.setModel(selectedModel.substring(5));
                             } else if (selectedModel.startsWith("deepseek:")) {
                                 deepSeekService.setModel(selectedModel.substring(9));
@@ -1415,9 +1375,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Determine which service to use based on the model ID
         AiService serviceToUse = null;
         if (selectedModel != null) {
-            if (selectedModel.startsWith("openai:")) {
-                serviceToUse = openAiService;
-            } else if (selectedModel.startsWith("giga:")) {
+            if (selectedModel.startsWith("giga:")) {
                 serviceToUse = gigaChatService;
             } else if (selectedModel.startsWith("deepseek:")) {
                 serviceToUse = deepSeekService;
@@ -1733,26 +1691,15 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         // Get the currently selected model from the dropdown
         String selectedModel = (String) modelSelector.getSelectedItem();
         if (selectedModel == null) {
-            log.warn("No model selected in dropdown, using default OpenAI model: {}",
-                    openAiService.getCurrentModel());
-            return openAiService.generateResponse(requestConversation);
+            String m = cliModelList("qwen").get(0);
+            log.warn("No model selected in dropdown, falling back to Qwen Code CLI, model: {}", m);
+            return runCliProvider(qwenCodeCliService, requestConversation, m);
         }
 
         // Get the model ID
         log.info("Using model from dropdown for message: {}", selectedModel);
 
-        // Check if this is an OpenAI model (prefixed with "openai:")
-        if (selectedModel.startsWith("openai:")) {
-            // Extract the actual OpenAI model ID
-            String openAiModelId = selectedModel.substring(7); // Remove "openai:" prefix
-            log.info("Using OpenAI model: {}", openAiModelId);
-
-            // Set the model in the OpenAI service
-            openAiService.setModel(openAiModelId);
-
-            // Call OpenAI API with conversation history
-            return openAiService.generateResponse(requestConversation);
-        } else if (selectedModel.startsWith("giga:")) {
+        if (selectedModel.startsWith("giga:")) {
             String gigaModelId = selectedModel.substring(5); // Remove "giga:" prefix
             log.info("Using GigaChat model: {}", gigaModelId);
             gigaChatService.setModel(gigaModelId);
@@ -1772,8 +1719,9 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             return runCliProvider(gigaCodeCliService, requestConversation, m);
         }
 
-        log.warn("Unsupported model prefix: {}, fallback to OpenAI", selectedModel);
-        return openAiService.generateResponse(requestConversation);
+        String m = cliModelList("qwen").get(0);
+        log.warn("Unsupported model prefix: {}, falling back to Qwen Code CLI, model: {}", selectedModel, m);
+        return runCliProvider(qwenCodeCliService, requestConversation, m);
     }
 
     /** Rolls back the last CLI ops batch on the EDT. */
@@ -2461,10 +2409,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
     private AiService getServiceForSelectedModel() {
         String selectedModel = (String) modelSelector.getSelectedItem();
         if (selectedModel == null) {
-            return openAiService;
-        }
-        if (selectedModel.startsWith("openai:")) {
-            return openAiService;
+            return qwenCodeCliService;
         }
         if (selectedModel.startsWith("giga:")) {
             return gigaChatService;
@@ -2478,7 +2423,7 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
         if (selectedModel.startsWith("gigacode-cli:")) {
             return gigaCodeCliService;
         }
-        return openAiService;
+        return qwenCodeCliService;
     }
 
     /**

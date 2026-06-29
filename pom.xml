@@ -34,12 +34,6 @@
     </properties>
 
     <dependencies>
-        <dependency>
-            <groupId>com.openai</groupId>
-            <artifactId>openai-java</artifactId>
-            <version>0.31.0</version>
-        </dependency>
-
         <!-- Provided by JMeter at runtime (bundled in lib/); used by CLI JSON response parsing -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -56,6 +50,29 @@
             <exclusions>
                 <exclusion>
                     <groupId>net.sf.saxon</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <!-- JMeter's lets-plot/Kotlin graphing stack: provided by the JMeter runtime and
+                     unused by this plugin. Excluded so the offline build doesn't need their jars
+                     (previously masked by openai-java pulling its own Kotlin version). -->
+                <exclusion>
+                    <groupId>org.jetbrains.kotlin</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.jetbrains.kotlinx</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.jetbrains.lets-plot</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.jetbrains</groupId>
+                    <artifactId>annotations</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.github.microutils</groupId>
                     <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>
@@ -81,6 +98,27 @@
                 </exclusion>
                 <exclusion>
                     <groupId>net.sf.saxon</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <!-- JMeter's lets-plot/Kotlin graphing stack (see ApacheJMeter_core above). -->
+                <exclusion>
+                    <groupId>org.jetbrains.kotlin</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.jetbrains.kotlinx</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.jetbrains.lets-plot</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.jetbrains</groupId>
+                    <artifactId>annotations</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>io.github.microutils</groupId>
                     <artifactId>*</artifactId>
                 </exclusion>
             </exclusions>

@@ -5,7 +5,6 @@ import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.gui.util.JMeterToolBar;
 import org.gigameter.jmeter.ai.service.AiService;
 import org.gigameter.jmeter.ai.service.GigaCodeCliService;
-import org.gigameter.jmeter.ai.service.OpenAiService;
 import org.gigameter.jmeter.ai.service.DeepSeekService;
 import org.gigameter.jmeter.ai.service.GigaChatService;
 import org.gigameter.jmeter.ai.service.QwenCodeCliService;
@@ -36,7 +35,7 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
         // Initialize the JSR223 context menu
         try {
             // Create AI service for the context menu based on JMeter properties
-            String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "openai");
+            String aiServiceType = AiConfig.getProperty("jmeter.ai.service.type", "qwen");
             AiService aiService = createAiService(aiServiceType);
 
             if (aiService != null) {
@@ -64,15 +63,7 @@ public class AiMenuItem extends JMenuItem implements ActionListener {
      */
     private AiService createAiService(String serviceType) {
         try {
-            if ("openai".equalsIgnoreCase(serviceType)) {
-                // Check if OpenAI API key is configured
-                String apiKey = AiConfig.getProperty("openai.api.key", "");
-                String model = AiConfig.getProperty("openai.default.model", "");
-                if (apiKey != null && !apiKey.isEmpty() && !apiKey.equals("YOUR_API_KEY")
-                        && model != null && !model.isEmpty()) {
-                    return new OpenAiService();
-                }
-            } else if ("giga".equalsIgnoreCase(serviceType) || "gigachat".equalsIgnoreCase(serviceType)) {
+            if ("giga".equalsIgnoreCase(serviceType) || "gigachat".equalsIgnoreCase(serviceType)) {
                 String authKey = AiConfig.getProperty("giga.auth.key", "");
                 String accessToken = AiConfig.getProperty("giga.access.token", "");
                 String model = AiConfig.getProperty("giga.default.model", "");
