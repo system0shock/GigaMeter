@@ -29,6 +29,8 @@ import org.gigameter.jmeter.ai.utils.AiConfig;
 import org.gigameter.jmeter.ai.utils.JMeterElementManager;
 import org.gigameter.jmeter.ai.utils.JMeterElementRequestHandler;
 import org.gigameter.jmeter.ai.utils.JMeterPlanSerializer;
+import org.gigameter.jmeter.ai.utils.JMeterPlanSerializer.SerializedPlan;
+import org.gigameter.jmeter.ai.utils.PlanContextBuilder;
 import org.gigameter.jmeter.ai.service.cli.CliAiService;
 import org.gigameter.jmeter.ai.skills.SkillService;
 import org.gigameter.jmeter.ai.service.ops.FencedOpsExtractor;
@@ -1783,15 +1785,44 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                     && gp.getTreeModel().getRoot() instanceof JMeterTreeNode) {
                 JMeterTreeNode root = JMeterPlanSerializer.planRoot(
                         (JMeterTreeNode) gp.getTreeModel().getRoot());
-                JMeterPlanSerializer.SerializedPlan plan = JMeterPlanSerializer.serialize(root);
-                tree = plan.toReadableTree();
-                revision = plan.revisionHash();
+                SerializedPlan plan = JMeterPlanSerializer.serialize(
+                        root, JMeterPlanSerializer.SKELETON_MAX_ELEMENTS,
+                        JMeterPlanSerializer.DEFAULT_MAX_DEPTH);
+                java.util.List<Integer> selected = selectedNodeIds(plan, gp);
+                int threshold = Integer.parseInt(
+                        AiConfig.getProperty("gigameter.context.collapse.threshold", "3"));
+                int maxChars = Integer.parseInt(
+                        AiConfig.getProperty("gigameter.context.max.chars", "24000"));
+                tree = PlanContextBuilder.build(plan, selected, threshold, maxChars);
+                revision = plan.revisionHash() + "#" + PlanContextBuilder.selectionHash(selected);
                 log.info("CLI tree context (revision={}):\n{}", revision, tree);
             }
         } catch (Exception e) {
             log.debug("Failed to build CLI tree context", e);
         }
         return new String[] {tree, revision};
+    }
+
+    /** Whole-plan #ids of the currently mouse-selected nodes (identity match against nodeById). */
+    private java.util.List<Integer> selectedNodeIds(SerializedPlan plan, GuiPackage gp) {
+        java.util.List<Integer> ids = new java.util.ArrayList<>();
+        try {
+            JMeterTreeNode[] selected = gp.getTreeListener().getSelectedNodes();
+            if (selected == null) {
+                return ids;
+            }
+            for (JMeterTreeNode sel : selected) {
+                for (java.util.Map.Entry<Integer, JMeterTreeNode> en : plan.nodeById.entrySet()) {
+                    if (en.getValue() == sel) {
+                        ids.add(en.getKey());
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to read selected nodes", e);
+        }
+        return ids;
     }
 
     /**
@@ -2188,6 +2219,12 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             current = (parent instanceof JMeterTreeNode) ? (JMeterTreeNode) parent : null;
         }
         return String.join(" > ", parts);
+    }
+
+    /** Test seam: assemble the two-layer plan context from a prebuilt plan + selected ids. */
+    static String buildPlanContextForTest(SerializedPlan plan, java.util.List<Integer> selectedIds,
+                                          int threshold, int maxChars) {
+        return PlanContextBuilder.build(plan, selectedIds, threshold, maxChars);
     }
 
     static String buildSelectedElementContextForTest(
