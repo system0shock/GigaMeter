@@ -28,6 +28,7 @@ public class JMeterPlanSerializer {
 
     public static final int DEFAULT_MAX_ELEMENTS = 300;
     public static final int DEFAULT_MAX_DEPTH = 20;
+    public static final int SKELETON_MAX_ELEMENTS = 5000;
     private static final int MAX_PROP_VALUE_LEN = 120;
 
     private static final String[] USEFUL_PROP_KEYS = {
@@ -122,6 +123,30 @@ public class JMeterPlanSerializer {
     }
 
     // =========================================================================
+    // Public helpers (used by PlanSkeleton, PlanContextBuilder, etc.)
+    // =========================================================================
+
+    /** Exclusive end index of the subtree rooted at {@code idx} (preorder + depth list). */
+    public static int subtreeEnd(List<ElementEntry> elements, int idx) {
+        int depth = elements.get(idx).depth;
+        int j = idx + 1;
+        while (j < elements.size() && elements.get(j).depth > depth) {
+            j++;
+        }
+        return j;
+    }
+
+    /** Public access to the friendly label mapping (used by PlanSkeleton). */
+    public static String friendlyType(String type) {
+        return friendlyTypeName(type);
+    }
+
+    /** Public access to the inline prop summary (used by PlanSkeleton representatives). */
+    public static String inlineSummary(String type, Map<String, String> props) {
+        return inlineProps(type, props);
+    }
+
+    // =========================================================================
     // SerializedPlan
     // =========================================================================
 
@@ -164,6 +189,14 @@ public class JMeterPlanSerializer {
          */
         public String toReadableTree() {
             return buildReadableTree(elements, truncated);
+        }
+
+        /** Readable tree (full inline props) over the sublist {@code [fromIdx, toIdx)}. */
+        public String toReadableTree(int fromIdx, int toIdx) {
+            List<ElementEntry> sub = elements.subList(
+                    Math.max(0, fromIdx),
+                    Math.min(toIdx, elements.size()));
+            return buildReadableTree(sub, false);
         }
 
         /**
