@@ -27,6 +27,13 @@ class AiChatPanelSelectionContextTest {
     }
 
     @Test
+    void parseIntOrFallsBackOnNonNumeric() {
+        org.junit.jupiter.api.Assertions.assertEquals(3, AiChatPanel.parseIntOr("not-a-number", 3));
+        org.junit.jupiter.api.Assertions.assertEquals(24000, AiChatPanel.parseIntOr(null, 24000));
+        org.junit.jupiter.api.Assertions.assertEquals(7, AiChatPanel.parseIntOr(" 7 ", 0));
+    }
+
+    @Test
     void buildsSkeletonWithoutSelection() {
         String out = AiChatPanel.buildPlanContextForTest(plan(), Collections.emptyList(), 3, 100000);
         assertTrue(out.contains("СТРУКТУРА ПЛАНА"));

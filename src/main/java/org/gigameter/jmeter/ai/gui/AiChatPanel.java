@@ -1789,10 +1789,10 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
                         root, JMeterPlanSerializer.SKELETON_MAX_ELEMENTS,
                         JMeterPlanSerializer.DEFAULT_MAX_DEPTH);
                 java.util.List<Integer> selected = selectedNodeIds(plan, gp);
-                int threshold = Integer.parseInt(
-                        AiConfig.getProperty("gigameter.context.collapse.threshold", "3"));
-                int maxChars = Integer.parseInt(
-                        AiConfig.getProperty("gigameter.context.max.chars", "24000"));
+                int threshold = parseIntOr(
+                        AiConfig.getProperty("gigameter.context.collapse.threshold", "3"), 3);
+                int maxChars = parseIntOr(
+                        AiConfig.getProperty("gigameter.context.max.chars", "24000"), 24000);
                 tree = PlanContextBuilder.build(plan, selected, threshold, maxChars);
                 revision = plan.revisionHash() + "#" + PlanContextBuilder.selectionHash(selected);
                 log.info("CLI tree context (revision={}):\n{}", revision, tree);
@@ -2219,6 +2219,15 @@ public class AiChatPanel extends JPanel implements PropertyChangeListener {
             current = (parent instanceof JMeterTreeNode) ? (JMeterTreeNode) parent : null;
         }
         return String.join(" > ", parts);
+    }
+
+    /** Parses an int, falling back to {@code def} on null/non-numeric input. */
+    static int parseIntOr(String s, int def) {
+        try {
+            return Integer.parseInt(s == null ? "" : s.trim());
+        } catch (NumberFormatException ex) {
+            return def;
+        }
     }
 
     /** Test seam: assemble the two-layer plan context from a prebuilt plan + selected ids. */
