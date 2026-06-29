@@ -19,7 +19,9 @@ public final class PlanSkeleton {
     private PlanSkeleton() {
     }
 
-    /** Maps each element id to a hash of its full subtree (type + name + props + children). */
+    /** Maps each element id to a hash of its full subtree (type + name + props + children).
+     *  Assumes a SINGLE depth-0 root (guaranteed by {@link JMeterPlanSerializer#planRoot}); a forest
+     *  would omit later roots since traversal starts at index 0. */
     public static Map<Integer, String> subtreeHashes(List<ElementEntry> elements) {
         Map<Integer, String> byId = new LinkedHashMap<>();
         if (!elements.isEmpty()) {
@@ -28,7 +30,9 @@ public final class PlanSkeleton {
         return byId;
     }
 
-    /** Renders the whole plan prop-light with sibling collapse and expanded-node markers. */
+    /** Renders the whole plan prop-light with sibling collapse and expanded-node markers.
+     *  Assumes a SINGLE depth-0 root (guaranteed by {@link JMeterPlanSerializer#planRoot}); a forest
+     *  would omit later roots since traversal starts at index 0. */
     public static String render(List<ElementEntry> elements, int collapseThreshold, Set<Integer> expandedIds) {
         StringBuilder sb = new StringBuilder();
         if (elements.isEmpty()) {
@@ -125,6 +129,8 @@ public final class PlanSkeleton {
             }
             j = JMeterPlanSerializer.subtreeEnd(elements, j);
         }
+        // 32-bit fingerprint; negligible (~2^-32/pair) collision chance could fold two structurally-
+        // different siblings, but ids stay addressable so jmeter-ops operations are unaffected.
         String h = Integer.toHexString(sb.toString().hashCode());
         out.put(e.id, h);
         return h;

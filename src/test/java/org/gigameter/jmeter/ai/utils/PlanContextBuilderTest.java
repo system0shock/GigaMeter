@@ -85,6 +85,32 @@ class PlanContextBuilderTest {
         assertTrue(PlanContextBuilder.topmostSelected(plan().elements, null).isEmpty());
     }
 
+    @Test
+    void truncatedPlanEmitsVisibleNote() {
+        // Same shape as plan() but with truncated=true to simulate a >5000-element plan
+        List<ElementEntry> l = new ArrayList<>();
+        l.add(e(1, 0, "TestPlan", "Plan"));
+        l.add(e(2, 1, "ThreadGroup", "TG A"));
+        l.add(e(3, 2, "HTTPSamplerProxy", "GET /a"));
+        l.add(e(4, 1, "ThreadGroup", "TG B"));
+        SerializedPlan truncatedPlan = new SerializedPlan(l, new LinkedHashMap<>(), true);
+
+        String out = PlanContextBuilder.build(truncatedPlan, Collections.emptyList(), 3, 100000);
+        assertTrue(out.contains("превышает"), "output must mention 'превышает'");
+        assertTrue(out.contains(String.valueOf(JMeterPlanSerializer.SKELETON_MAX_ELEMENTS)),
+                "output must contain the SKELETON_MAX_ELEMENTS value (5000)");
+    }
+
+    @Test
+    void detailBannerNotRepeated() {
+        // Select node #2 (TG A); the detail rendered by toReadableTree starts with a
+        // "Структура JMeter …" banner that stripTreeBanner should remove.
+        String out = PlanContextBuilder.build(plan(), Arrays.asList(2), 3, 100000);
+        assertTrue(out.contains("ДЕТАЛИ ВЫДЕЛЕННЫХ ВЕТОК"), "detail section must be present");
+        assertFalse(out.contains("Структура JMeter"),
+                "the per-subtree banner must be stripped from DETAIL section");
+    }
+
     private static String repeat(String s, int n) {
         StringBuilder b = new StringBuilder();
         for (int i = 0; i < n; i++) {

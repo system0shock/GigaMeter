@@ -74,6 +74,11 @@ public final class PlanContextBuilder {
         sb.append("СТРУКТУРА ПЛАНА (скелет, #id для операций jmeter-ops):\n");
         sb.append(skeleton);
 
+        if (plan.truncated) {
+            sb.append("\n(⚠ план превышает ").append(JMeterPlanSerializer.SKELETON_MAX_ELEMENTS)
+              .append(" элементов: показаны первые, остальные не вошли в скелет)\n");
+        }
+
         if (sb.length() > maxChars) {
             sb.append("\n(⚠ план очень большой: контекст не ужат до бюджета, возможны ограничения модели)\n");
             return sb.toString();
@@ -88,7 +93,7 @@ public final class PlanContextBuilder {
         for (Integer id : topmost) {
             int idx = id - 1;
             int end = JMeterPlanSerializer.subtreeEnd(elements, idx);
-            String detail = plan.toReadableTree(idx, end);
+            String detail = stripTreeBanner(plan.toReadableTree(idx, end));
             if (sb.length() + detail.length() > maxChars) {
                 overflow.add(id);
                 continue;
@@ -99,5 +104,12 @@ public final class PlanContextBuilder {
             sb.append("(детали #").append(id).append(" не влезли в бюджет — выделите меньше)\n");
         }
         return sb.toString();
+    }
+
+    /** Drops the leading "Структура JMeter…" banner line that toReadableTree prepends, so the
+     *  DETAIL section is not polluted with one banner per selected subtree. */
+    private static String stripTreeBanner(String tree) {
+        int nl = tree.indexOf('\n');
+        return nl >= 0 ? tree.substring(nl + 1) : tree;
     }
 }
