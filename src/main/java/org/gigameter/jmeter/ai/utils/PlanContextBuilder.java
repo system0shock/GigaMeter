@@ -21,6 +21,9 @@ public final class PlanContextBuilder {
 
     /** Drops any selected id that is a descendant of another selected id; preserves order. */
     public static List<Integer> topmostSelected(List<ElementEntry> elements, Collection<Integer> selectedIds) {
+        if (selectedIds == null) {
+            return new ArrayList<>();
+        }
         Set<Integer> selected = new HashSet<>(selectedIds);
         List<Integer> out = new ArrayList<>();
         for (ElementEntry e : elements) {
