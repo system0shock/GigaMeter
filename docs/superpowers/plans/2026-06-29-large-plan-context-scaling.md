@@ -1,10 +1,10 @@
-﻿# Large-plan context scaling Implementation Plan
+# Large-plan context scaling Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stop silent truncation of large JMeter plans by sending the agent a compact whole-plan *skeleton* (breadth) plus full detail of the mouse-selected subtrees (depth), within a size budget.
 
-**Architecture:** A new `PlanSkeleton` renders the whole plan prop-light with sibling collapse keyed on a recursive structural fingerprint (so legacy same-name/different-content siblings never fold). A new `PlanContextBuilder` assembles two layers вЂ” skeleton + selected-subtree detail вЂ” and enforces a char budget with visible (never silent) degradation. `AiChatPanel.currentTreeContext()` switches to the builder and feeds it the ids of `getSelectedNodes()`; the session re-send key gains a selection hash. All new logic is pure and operates on `List<JMeterPlanSerializer.ElementEntry>`, so tests need no live JMeter tree.
+**Architecture:** A new `PlanSkeleton` renders the whole plan prop-light with sibling collapse keyed on a recursive structural fingerprint (so legacy same-name/different-content siblings never fold). A new `PlanContextBuilder` assembles two layers — skeleton + selected-subtree detail — and enforces a char budget with visible (never silent) degradation. `AiChatPanel.currentTreeContext()` switches to the builder and feeds it the ids of `getSelectedNodes()`; the session re-send key gains a selection hash. All new logic is pure and operates on `List<JMeterPlanSerializer.ElementEntry>`, so tests need no live JMeter tree.
 
 **Tech Stack:** Java 11, JUnit 5 (Jupiter), Maven (offline). Existing classes: `org.gigameter.jmeter.ai.utils.JMeterPlanSerializer`, `org.gigameter.jmeter.ai.gui.AiChatPanel`.
 
@@ -16,13 +16,13 @@
   Run one test class: append `-Dtest=ClassName`.
 - Working directory is the git repo root `F:\Coding\Jmeter-ai-plugin\jmeter-ai`. Branch `main`.
 - No new third-party dependencies (the build was just stripped of `openai-java`; keep it dependency-light).
-- `#id` semantics and the `jmeter-ops` protocol must not change вЂ” ids stay the whole-plan DFS ids (`id == listIndex + 1`).
+- `#id` semantics and the `jmeter-ops` protocol must not change — ids stay the whole-plan DFS ids (`id == listIndex + 1`).
 - New code lives in package `org.gigameter.jmeter.ai.utils`. Russian user-facing strings, matching existing tone.
 - Commit messages end with: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`
 
 ## Existing facts the implementer needs
 
-- `JMeterPlanSerializer.serialize(JMeterTreeNode root, int maxElements, int maxDepth)` в†’ `SerializedPlan`.
+- `JMeterPlanSerializer.serialize(JMeterTreeNode root, int maxElements, int maxDepth)` → `SerializedPlan`.
 - `SerializedPlan` public fields: `List<ElementEntry> elements`, `Map<Integer,JMeterTreeNode> nodeById`, `boolean truncated`. Methods: `toJson()`, `toJson(int,int)`, `toReadableTree()`, `revisionHash()`, `size()`.
 - `ElementEntry` PUBLIC constructor: `ElementEntry(int id, int depth, String type, String name, Map<String,String> props)`; public final fields `id, depth, type, name, props`.
 - Ids are sequential from 1 in DFS preorder with no gaps, so `elements.get(k).id == k + 1`.
@@ -43,12 +43,12 @@
   - `topmostSelected(...)`, `selectionHash(...)`, `build(...)`.
 - **Modify** `src/main/java/org/gigameter/jmeter/ai/gui/AiChatPanel.java`
   - `currentTreeContext()`, new `selectedIds(...)`, `buildCliSessionTurn()` re-send key.
-- **Modify** `jmeter-ai-sample.properties` вЂ” document new properties.
+- **Modify** `jmeter-ai-sample.properties` — document new properties.
 - **Create** tests under `src/test/java/org/gigameter/jmeter/ai/utils/`.
 
 ---
 
-### Task 1: Serializer helpers вЂ” `subtreeEnd`, public type/prop delegates, detail subrange
+### Task 1: Serializer helpers — `subtreeEnd`, public type/prop delegates, detail subrange
 
 **Files:**
 - Modify: `src/main/java/org/gigameter/jmeter/ai/utils/JMeterPlanSerializer.java`
@@ -57,10 +57,10 @@
 **Interfaces:**
 - Produces:
   - `public static final int JMeterPlanSerializer.SKELETON_MAX_ELEMENTS` (= 5000)
-  - `public static int JMeterPlanSerializer.subtreeEnd(List<ElementEntry> elements, int idx)` вЂ” exclusive end index of the subtree rooted at `idx` (preorder + depth).
+  - `public static int JMeterPlanSerializer.subtreeEnd(List<ElementEntry> elements, int idx)` — exclusive end index of the subtree rooted at `idx` (preorder + depth).
   - `public static String JMeterPlanSerializer.friendlyType(String type)`
   - `public static String JMeterPlanSerializer.inlineSummary(String type, Map<String,String> props)`
-  - `public String SerializedPlan.toReadableTree(int fromIdx, int toIdx)` вЂ” readable tree (full inline props) over the sublist `[fromIdx, toIdx)`.
+  - `public String SerializedPlan.toReadableTree(int fromIdx, int toIdx)` — readable tree (full inline props) over the sublist `[fromIdx, toIdx)`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -130,7 +130,7 @@ class JMeterPlanSerializerHelpersTest {
 }
 ```
 
-Note on `subtreeEndCoversDescendants`: TG A is idx 1, its only descendant is idx 2; the next element at depth в‰¤ 1 is idx 3 (TG B), so `subtreeEnd(l,1)` must return **3**. Fix the expected value to `3`:
+Note on `subtreeEndCoversDescendants`: TG A is idx 1, its only descendant is idx 2; the next element at depth ≤ 1 is idx 3 (TG B), so `subtreeEnd(l,1)` must return **3**. Fix the expected value to `3`:
 
 ```java
     @Test
@@ -143,7 +143,7 @@ Note on `subtreeEndCoversDescendants`: TG A is idx 1, its only descendant is idx
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `& "F:\Coding\tools\apache-maven-3.9.12\bin\mvn.cmd" -o test -Dtest=JMeterPlanSerializerHelpersTest`
-Expected: FAIL вЂ” `subtreeEnd` / `friendlyType` / `toReadableTree(int,int)` not defined (compile error).
+Expected: FAIL — `subtreeEnd` / `friendlyType` / `toReadableTree(int,int)` not defined (compile error).
 
 - [ ] **Step 3: Add the helpers to `JMeterPlanSerializer`**
 
@@ -211,7 +211,7 @@ git commit -m "feat: serializer helpers for skeleton/detail context (subtreeEnd,
 
 **Interfaces:**
 - Consumes: `JMeterPlanSerializer.subtreeEnd`, `ElementEntry`.
-- Produces: `public static Map<Integer,String> PlanSkeleton.subtreeHashes(List<ElementEntry> elements)` вЂ” maps each element id to a hash of `type + name + props + ordered child subtree hashes`. Identical subtrees share a hash; structurally different ones differ.
+- Produces: `public static Map<Integer,String> PlanSkeleton.subtreeHashes(List<ElementEntry> elements)` — maps each element id to a hash of `type + name + props + ordered child subtree hashes`. Identical subtrees share a hash; structurally different ones differ.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -239,7 +239,7 @@ class PlanSkeletonHashTest {
 
     @Test
     void identicalSiblingSubtreesShareHash() {
-        // #1 Plan > [#2 HM "Auth", #3 HM "Auth"] вЂ” identical leaves
+        // #1 Plan > [#2 HM "Auth", #3 HM "Auth"] — identical leaves
         List<ElementEntry> l = new ArrayList<>();
         l.add(e(1, 0, "TestPlan", "Plan"));
         l.add(e(2, 1, "HeaderManager", "Auth"));
@@ -250,12 +250,12 @@ class PlanSkeletonHashTest {
 
     @Test
     void sameNameDifferentChildrenDifferHash() {
-        // Two thread groups both named "Р”РµР±Р°Рі" but different content
+        // Two thread groups both named "Дебаг" but different content
         List<ElementEntry> l = new ArrayList<>();
         l.add(e(1, 0, "TestPlan", "Plan"));
-        l.add(e(2, 1, "ThreadGroup", "Р”РµР±Р°Рі"));
+        l.add(e(2, 1, "ThreadGroup", "Дебаг"));
         l.add(e(3, 2, "HTTPSamplerProxy", "GET /a"));
-        l.add(e(4, 1, "ThreadGroup", "Р”РµР±Р°Рі"));
+        l.add(e(4, 1, "ThreadGroup", "Дебаг"));
         l.add(e(5, 2, "HTTPSamplerProxy", "GET /b"));
         Map<Integer, String> h = PlanSkeleton.subtreeHashes(l);
         assertNotEquals(h.get(2), h.get(4));
@@ -280,7 +280,7 @@ class PlanSkeletonHashTest {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `& "F:\Coding\tools\apache-maven-3.9.12\bin\mvn.cmd" -o test -Dtest=PlanSkeletonHashTest`
-Expected: FAIL вЂ” `PlanSkeleton` does not exist (compile error).
+Expected: FAIL — `PlanSkeleton` does not exist (compile error).
 
 - [ ] **Step 3: Create `PlanSkeleton` with `subtreeHashes`**
 
@@ -358,9 +358,9 @@ git commit -m "feat: recursive subtree fingerprint for sibling collapse"
 **Interfaces:**
 - Consumes: `subtreeHashes`, `JMeterPlanSerializer.subtreeEnd/friendlyType/inlineSummary`.
 - Produces: `public static String PlanSkeleton.render(List<ElementEntry> elements, int collapseThreshold, java.util.Set<Integer> expandedIds)`.
-  - Every element line: `#<id> <indent>в””в”Ђ [<friendlyType>] "<name>"`.
-  - A sibling group sharing a subtree hash with `count >= collapseThreshold`: the first occurrence renders fully (its line may append ` | <inlineSummary>`), its subtree is rendered; every later occurrence renders one line `... "<name>" в‰Ў #<repId>` and its subtree is skipped.
-  - An id in `expandedIds` renders one line `... "<name>" (СЂР°СЃРєСЂС‹С‚Рѕ РЅРёР¶Рµ в†“)` and its subtree is skipped (it appears in the detail layer). `expandedIds` takes priority over collapse.
+  - Every element line: `#<id> <indent>└─ [<friendlyType>] "<name>"`.
+  - A sibling group sharing a subtree hash with `count >= collapseThreshold`: the first occurrence renders fully (its line may append ` | <inlineSummary>`), its subtree is rendered; every later occurrence renders one line `... "<name>" ≡ #<repId>` and its subtree is skipped.
+  - An id in `expandedIds` renders one line `... "<name>" (раскрыто ниже ↓)` and its subtree is skipped (it appears in the detail layer). `expandedIds` takes priority over collapse.
   - Never drops an element line.
 
 - [ ] **Step 1: Write the failing test**
@@ -402,7 +402,7 @@ class PlanSkeletonRenderTest {
     void collapsesThreeOrMoreIdenticalSiblings() {
         String out = PlanSkeleton.render(withIdenticalSiblings(3), 3, Collections.emptySet());
         assertTrue(out.contains("#2"));            // representative
-        assertTrue(out.contains("в‰Ў #2"));          // collapsed refs point to #2
+        assertTrue(out.contains("≡ #2"));          // collapsed refs point to #2
         assertTrue(out.contains("#3"));            // ids preserved
         assertTrue(out.contains("#4"));
     }
@@ -410,22 +410,22 @@ class PlanSkeletonRenderTest {
     @Test
     void doesNotCollapseBelowThreshold() {
         String out = PlanSkeleton.render(withIdenticalSiblings(2), 3, Collections.emptySet());
-        assertFalse(out.contains("в‰Ў #"));
+        assertFalse(out.contains("≡ #"));
     }
 
     @Test
     void doesNotCollapseSameNameDifferentContent() {
-        // Two "Р”РµР±Р°Рі" thread groups with different children -> different hashes -> no collapse
+        // Two "Дебаг" thread groups with different children -> different hashes -> no collapse
         List<ElementEntry> l = new ArrayList<>();
         l.add(e(1, 0, "TestPlan", "Plan"));
-        l.add(e(2, 1, "ThreadGroup", "Р”РµР±Р°Рі"));
+        l.add(e(2, 1, "ThreadGroup", "Дебаг"));
         l.add(e(3, 2, "HTTPSamplerProxy", "GET /a"));
-        l.add(e(4, 1, "ThreadGroup", "Р”РµР±Р°Рі"));
+        l.add(e(4, 1, "ThreadGroup", "Дебаг"));
         l.add(e(5, 2, "HTTPSamplerProxy", "GET /b"));
-        l.add(e(6, 1, "ThreadGroup", "Р”РµР±Р°Рі"));
+        l.add(e(6, 1, "ThreadGroup", "Дебаг"));
         l.add(e(7, 2, "HTTPSamplerProxy", "GET /c"));
         String out = PlanSkeleton.render(l, 3, Collections.emptySet());
-        assertFalse(out.contains("в‰Ў #"));
+        assertFalse(out.contains("≡ #"));
         assertTrue(out.contains("GET /a"));
         assertTrue(out.contains("GET /b"));
         assertTrue(out.contains("GET /c"));
@@ -440,7 +440,7 @@ class PlanSkeletonRenderTest {
         Set<Integer> expanded = new HashSet<>();
         expanded.add(2);
         String out = PlanSkeleton.render(l, 3, expanded);
-        assertTrue(out.contains("СЂР°СЃРєСЂС‹С‚Рѕ РЅРёР¶Рµ"));
+        assertTrue(out.contains("раскрыто ниже"));
         assertFalse(out.contains("secret-detail")); // subtree skipped in skeleton
     }
 }
@@ -449,7 +449,7 @@ class PlanSkeletonRenderTest {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `& "F:\Coding\tools\apache-maven-3.9.12\bin\mvn.cmd" -o test -Dtest=PlanSkeletonRenderTest`
-Expected: FAIL вЂ” `render` not defined (compile error).
+Expected: FAIL — `render` not defined (compile error).
 
 - [ ] **Step 3: Add `render` to `PlanSkeleton`**
 
@@ -501,7 +501,7 @@ Add to the `PlanSkeleton` class body:
                     repId.put(h, child.id);
                     renderSubtree(elements, ci, hashes, threshold, expanded, true, sb); // representative w/ props
                 } else {
-                    appendLine(child, "", rep, false, sb); // в‰Ў #rep, skip subtree
+                    appendLine(child, "", rep, false, sb); // ≡ #rep, skip subtree
                 }
             } else {
                 renderSubtree(elements, ci, hashes, threshold, expanded, false, sb);
@@ -523,15 +523,15 @@ Add to the `PlanSkeleton` class body:
         return out;
     }
 
-    /** Appends one skeleton line. {@code refId} non-null => "в‰Ў #refId"; {@code expandedMarker} => "(СЂР°СЃРєСЂС‹С‚Рѕ РЅРёР¶Рµ в†“)". */
+    /** Appends one skeleton line. {@code refId} non-null => "≡ #refId"; {@code expandedMarker} => "(раскрыто ниже ↓)". */
     private static void appendLine(ElementEntry e, String inline, Integer refId, boolean expandedMarker, StringBuilder sb) {
         String indent = repeat("  ", Math.max(0, e.depth));
         sb.append('#').append(e.id).append(' ').append(indent)
-          .append("в””в”Ђ [").append(JMeterPlanSerializer.friendlyType(e.type)).append("] \"").append(e.name).append('"');
+          .append("└─ [").append(JMeterPlanSerializer.friendlyType(e.type)).append("] \"").append(e.name).append('"');
         if (refId != null) {
-            sb.append(" в‰Ў #").append(refId);
+            sb.append(" ≡ #").append(refId);
         } else if (expandedMarker) {
-            sb.append(" (СЂР°СЃРєСЂС‹С‚Рѕ РЅРёР¶Рµ в†“)");
+            sb.append(" (раскрыто ниже ↓)");
         } else if (inline != null && !inline.isEmpty()) {
             sb.append(" | ").append(inline);
         }
@@ -547,7 +547,7 @@ Add to the `PlanSkeleton` class body:
     }
 ```
 
-(Java 11 has `String.repeat`, but `"  ".repeat` is used elsewhere; the local `repeat` helper keeps this class self-contained вЂ” either is fine.)
+(Java 11 has `String.repeat`, but `"  ".repeat` is used elsewhere; the local `repeat` helper keeps this class self-contained — either is fine.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -572,12 +572,12 @@ git commit -m "feat: skeleton renderer with structural sibling collapse"
 **Interfaces:**
 - Consumes: `SerializedPlan` (`elements`, `toReadableTree(int,int)`), `PlanSkeleton.render`, `JMeterPlanSerializer.subtreeEnd`.
 - Produces:
-  - `public static List<Integer> PlanContextBuilder.topmostSelected(List<ElementEntry> elements, java.util.Collection<Integer> selectedIds)` вЂ” drops any selected id that is a descendant of another selected id; preserves document order.
-  - `public static String PlanContextBuilder.selectionHash(java.util.Collection<Integer> selectedIds)` вЂ” order-independent stable hash of the selection.
-  - `public static String PlanContextBuilder.build(SerializedPlan plan, java.util.Collection<Integer> selectedIds, int collapseThreshold, int maxChars)` вЂ” full two-layer context string.
-    - Always contains the skeleton section header `РЎРўР РЈРљРўРЈР Рђ РџР›РђРќРђ`.
-    - For each topmost selected id, a detail section under `Р”Р•РўРђР›Р Р’Р«Р”Р•Р›Р•РќРќР«РҐ Р’Р•РўРћРљ` rendered via `plan.toReadableTree(idIdx, subtreeEnd)`, reusing whole-plan ids.
-    - Budget: append detail subtrees in order until the next would exceed `maxChars`; ones that don't fit are listed as `(РґРµС‚Р°Р»Рё #<id> РЅРµ РІР»РµР·Р»Рё РІ Р±СЋРґР¶РµС‚ вЂ” РІС‹РґРµР»РёС‚Рµ РјРµРЅСЊС€Рµ)`. If the skeleton alone exceeds `maxChars`, include it anyway and append `(вљ  РїР»Р°РЅ РѕС‡РµРЅСЊ Р±РѕР»СЊС€РѕР№: ...)`. Never silently truncate.
+  - `public static List<Integer> PlanContextBuilder.topmostSelected(List<ElementEntry> elements, java.util.Collection<Integer> selectedIds)` — drops any selected id that is a descendant of another selected id; preserves document order.
+  - `public static String PlanContextBuilder.selectionHash(java.util.Collection<Integer> selectedIds)` — order-independent stable hash of the selection.
+  - `public static String PlanContextBuilder.build(SerializedPlan plan, java.util.Collection<Integer> selectedIds, int collapseThreshold, int maxChars)` — full two-layer context string.
+    - Always contains the skeleton section header `СТРУКТУРА ПЛАНА`.
+    - For each topmost selected id, a detail section under `ДЕТАЛИ ВЫДЕЛЕННЫХ ВЕТОК` rendered via `plan.toReadableTree(idIdx, subtreeEnd)`, reusing whole-plan ids.
+    - Budget: append detail subtrees in order until the next would exceed `maxChars`; ones that don't fit are listed as `(детали #<id> не влезли в бюджет — выделите меньше)`. If the skeleton alone exceeds `maxChars`, include it anyway and append `(⚠ план очень большой: ...)`. Never silently truncate.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -618,8 +618,8 @@ class PlanContextBuilderTest {
     @Test
     void buildHasSkeletonAndDetailSections() {
         String out = PlanContextBuilder.build(plan(), Arrays.asList(2), 3, 100000);
-        assertTrue(out.contains("РЎРўР РЈРљРўРЈР Рђ РџР›РђРќРђ"));
-        assertTrue(out.contains("Р”Р•РўРђР›Р Р’Р«Р”Р•Р›Р•РќРќР«РҐ Р’Р•РўРћРљ"));
+        assertTrue(out.contains("СТРУКТУРА ПЛАНА"));
+        assertTrue(out.contains("ДЕТАЛИ ВЫДЕЛЕННЫХ ВЕТОК"));
         assertTrue(out.contains("#2"));
         assertTrue(out.contains("GET /a")); // detail of selected TG A includes its sampler
     }
@@ -642,8 +642,8 @@ class PlanContextBuilderTest {
     void overBudgetEmitsVisibleNoteNotSilentDrop() {
         // tiny budget: skeleton fits but detail does not
         String out = PlanContextBuilder.build(plan(), Arrays.asList(2), 3, 1);
-        assertTrue(out.contains("РЎРўР РЈРљРўРЈР Рђ РџР›РђРќРђ"));     // skeleton always present
-        assertTrue(out.contains("РЅРµ РІР»РµР·Р»Рё РІ Р±СЋРґР¶РµС‚") || out.contains("РѕС‡РµРЅСЊ Р±РѕР»СЊС€РѕР№"));
+        assertTrue(out.contains("СТРУКТУРА ПЛАНА"));     // skeleton always present
+        assertTrue(out.contains("не влезли в бюджет") || out.contains("очень большой"));
     }
 }
 ```
@@ -651,7 +651,7 @@ class PlanContextBuilderTest {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `& "F:\Coding\tools\apache-maven-3.9.12\bin\mvn.cmd" -o test -Dtest=PlanContextBuilderTest`
-Expected: FAIL вЂ” `PlanContextBuilder` does not exist (compile error).
+Expected: FAIL — `PlanContextBuilder` does not exist (compile error).
 
 - [ ] **Step 3: Create `PlanContextBuilder`**
 
@@ -725,11 +725,11 @@ public final class PlanContextBuilder {
         String skeleton = PlanSkeleton.render(elements, collapseThreshold, expanded);
 
         StringBuilder sb = new StringBuilder();
-        sb.append("РЎРўР РЈРљРўРЈР Рђ РџР›РђРќРђ (СЃРєРµР»РµС‚, #id РґР»СЏ РѕРїРµСЂР°С†РёР№ jmeter-ops):\n");
+        sb.append("СТРУКТУРА ПЛАНА (скелет, #id для операций jmeter-ops):\n");
         sb.append(skeleton);
 
         if (sb.length() > maxChars) {
-            sb.append("\n(вљ  РїР»Р°РЅ РѕС‡РµРЅСЊ Р±РѕР»СЊС€РѕР№: РєРѕРЅС‚РµРєСЃС‚ РЅРµ СѓР¶Р°С‚ РґРѕ Р±СЋРґР¶РµС‚Р°, РІРѕР·РјРѕР¶РЅС‹ РѕРіСЂР°РЅРёС‡РµРЅРёСЏ РјРѕРґРµР»Рё)\n");
+            sb.append("\n(⚠ план очень большой: контекст не ужат до бюджета, возможны ограничения модели)\n");
             return sb.toString();
         }
 
@@ -737,7 +737,7 @@ public final class PlanContextBuilder {
             return sb.toString();
         }
 
-        sb.append("\nР”Р•РўРђР›Р Р’Р«Р”Р•Р›Р•РќРќР«РҐ Р’Р•РўРћРљ:\n");
+        sb.append("\nДЕТАЛИ ВЫДЕЛЕННЫХ ВЕТОК:\n");
         List<Integer> overflow = new ArrayList<>();
         for (Integer id : topmost) {
             int idx = id - 1;
@@ -750,7 +750,7 @@ public final class PlanContextBuilder {
             sb.append(detail);
         }
         for (Integer id : overflow) {
-            sb.append("(РґРµС‚Р°Р»Рё #").append(id).append(" РЅРµ РІР»РµР·Р»Рё РІ Р±СЋРґР¶РµС‚ вЂ” РІС‹РґРµР»РёС‚Рµ РјРµРЅСЊС€Рµ)\n");
+            sb.append("(детали #").append(id).append(" не влезли в бюджет — выделите меньше)\n");
         }
         return sb.toString();
     }
@@ -780,7 +780,7 @@ git commit -m "feat: two-layer context assembly with budget guard"
 
 **Interfaces:**
 - Consumes: `PlanContextBuilder.build`, `PlanContextBuilder.selectionHash`, `JMeterPlanSerializer.serialize(root, SKELETON_MAX_ELEMENTS, DEFAULT_MAX_DEPTH)`, `getTreeListener().getSelectedNodes()`.
-- Produces (testable seam): `static String AiChatPanel.buildPlanContextForTest(SerializedPlan plan, java.util.List<Integer> selectedIds, int threshold, int maxChars)` delegating to `PlanContextBuilder.build` вЂ” lets the wiring be tested without a live tree.
+- Produces (testable seam): `static String AiChatPanel.buildPlanContextForTest(SerializedPlan plan, java.util.List<Integer> selectedIds, int threshold, int maxChars)` delegating to `PlanContextBuilder.build` — lets the wiring be tested without a live tree.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -818,13 +818,13 @@ class AiChatPanelSelectionContextTest {
     @Test
     void buildsSkeletonWithoutSelection() {
         String out = AiChatPanel.buildPlanContextForTest(plan(), Collections.emptyList(), 3, 100000);
-        assertTrue(out.contains("РЎРўР РЈРљРўРЈР Рђ РџР›РђРќРђ"));
+        assertTrue(out.contains("СТРУКТУРА ПЛАНА"));
     }
 
     @Test
     void buildsDetailForSelection() {
         String out = AiChatPanel.buildPlanContextForTest(plan(), Arrays.asList(2), 3, 100000);
-        assertTrue(out.contains("Р”Р•РўРђР›Р Р’Р«Р”Р•Р›Р•РќРќР«РҐ Р’Р•РўРћРљ"));
+        assertTrue(out.contains("ДЕТАЛИ ВЫДЕЛЕННЫХ ВЕТОК"));
         assertTrue(out.contains("GET /a"));
     }
 }
@@ -833,7 +833,7 @@ class AiChatPanelSelectionContextTest {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `& "F:\Coding\tools\apache-maven-3.9.12\bin\mvn.cmd" -o test -Dtest=AiChatPanelSelectionContextTest`
-Expected: FAIL вЂ” `buildPlanContextForTest` not defined (compile error).
+Expected: FAIL — `buildPlanContextForTest` not defined (compile error).
 
 - [ ] **Step 3: Add the testable seam and wire `currentTreeContext`**
 
@@ -907,7 +907,7 @@ Replace the body of `currentTreeContext()` so it builds the skeleton-capacity pl
     }
 ```
 
-Note: `revision` now folds in the selection hash, so `buildCliSessionTurn()` already re-sends context when the selection changes (it compares the whole `revision` string) вЂ” no further change needed there. Verify `buildCliSessionTurn()` compares the full `ctx[1]` string against `lastSentTreeRevision`; it does.
+Note: `revision` now folds in the selection hash, so `buildCliSessionTurn()` already re-sends context when the selection changes (it compares the whole `revision` string) — no further change needed there. Verify `buildCliSessionTurn()` compares the full `ctx[1]` string against `lastSentTreeRevision`; it does.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -923,12 +923,12 @@ In `jmeter-ai-sample.properties`, add under the CLI providers section (after the
 # Agent context for large plans
 # -----------------------------
 # The plugin sends the agent a compact whole-plan "skeleton" (every element, prop-light, with
-# structurally-identical sibling groups collapsed to a representative + "в‰Ў #id" refs) plus the FULL
+# structurally-identical sibling groups collapsed to a representative + "≡ #id" refs) plus the FULL
 # detail of the subtrees you have selected with the mouse. This keeps huge legacy plans (dozens of
 # thread groups) from being truncated while still giving depth where you are working.
 #
 # Collapse only triggers for >= this many structurally-identical siblings (by subtree fingerprint,
-# never by name вЂ” same-name different-content elements are never collapsed).
+# never by name — same-name different-content elements are never collapsed).
 gigameter.context.collapse.threshold=3
 # Soft char budget for the assembled context. Skeleton (breadth) is always included; selected-subtree
 # detail is added until the budget is reached, and anything dropped is announced in-context (never
@@ -964,25 +964,25 @@ Expected: `BUILD SUCCESS`; `target/jmeter-agent-0.5.0-beta.jar` produced.
 
 - [ ] **Step 3: Manual check note (no code)**
 
-Record in the PR/commit body that end-to-end GUI behavior (large plan в†’ skeleton + selected-subtree detail, no truncation) must be clicked through once in JMeter with the deployed jar, since the selection read (`getSelectedNodes()`) is only exercisable live.
+Record in the PR/commit body that end-to-end GUI behavior (large plan → skeleton + selected-subtree detail, no truncation) must be clicked through once in JMeter with the deployed jar, since the selection read (`getSelectedNodes()`) is only exercisable live.
 
 ---
 
 ## Self-Review
 
 **Spec coverage:**
-- Skeleton (whole plan, no element-count truncation) в†’ Task 5 serializes with `SKELETON_MAX_ELEMENTS`; Task 3 renders every element. вњ“
-- Structural fingerprint + sibling collapse (by structure, not name; threshold N) в†’ Tasks 2, 3. вњ“
-- Representation A (representative + `в‰Ў #id`, ids preserved) в†’ Task 3. вњ“
-- Selected-subtree detail via `getSelectedNodes()`, deduped against skeleton, topmost-only в†’ Tasks 3 (expanded marker), 4 (`topmostSelected`), 5 (wiring). вњ“
-- Budget guard, breadth-first, visible degradation в†’ Task 4. вњ“
-- Prompt format sections в†’ Task 4. вњ“
-- Session re-send key `revision + selectionHash` в†’ Task 5. вњ“
-- Edge: same-name different-content not collapsed в†’ Tasks 2, 3 tests. вњ“
-- Config knobs documented в†’ Task 5. вњ“
-- Stage 2 (`get_subtree`) explicitly out of scope в†’ not planned. вњ“
-- Tests alongside existing context test в†’ all tasks. вњ“
+- Skeleton (whole plan, no element-count truncation) → Task 5 serializes with `SKELETON_MAX_ELEMENTS`; Task 3 renders every element. ✓
+- Structural fingerprint + sibling collapse (by structure, not name; threshold N) → Tasks 2, 3. ✓
+- Representation A (representative + `≡ #id`, ids preserved) → Task 3. ✓
+- Selected-subtree detail via `getSelectedNodes()`, deduped against skeleton, topmost-only → Tasks 3 (expanded marker), 4 (`topmostSelected`), 5 (wiring). ✓
+- Budget guard, breadth-first, visible degradation → Task 4. ✓
+- Prompt format sections → Task 4. ✓
+- Session re-send key `revision + selectionHash` → Task 5. ✓
+- Edge: same-name different-content not collapsed → Tasks 2, 3 tests. ✓
+- Config knobs documented → Task 5. ✓
+- Stage 2 (`get_subtree`) explicitly out of scope → not planned. ✓
+- Tests alongside existing context test → all tasks. ✓
 
-**Placeholder scan:** No TBD/TODO; all code shown; the one tuning value (`max.chars=24000`) is a concrete default. вњ“
+**Placeholder scan:** No TBD/TODO; all code shown; the one tuning value (`max.chars=24000`) is a concrete default. ✓
 
-**Type consistency:** `subtreeEnd(List,int)`, `subtreeHashes(List)в†’Map<Integer,String>`, `render(List,int,Set<Integer>)`, `topmostSelected(List,Collection<Integer>)в†’List<Integer>`, `selectionHash(Collection<Integer>)в†’String`, `build(SerializedPlan,Collection<Integer>,int,int)в†’String`, `buildPlanContextForTest(SerializedPlan,List<Integer>,int,int)` вЂ” used consistently across tasks. `SerializedPlan` constructor `(List,Map,boolean)` matches existing signature. вњ“
+**Type consistency:** `subtreeEnd(List,int)`, `subtreeHashes(List)→Map<Integer,String>`, `render(List,int,Set<Integer>)`, `topmostSelected(List,Collection<Integer>)→List<Integer>`, `selectionHash(Collection<Integer>)→String`, `build(SerializedPlan,Collection<Integer>,int,int)→String`, `buildPlanContextForTest(SerializedPlan,List<Integer>,int,int)` — used consistently across tasks. `SerializedPlan` constructor `(List,Map,boolean)` matches existing signature. ✓
