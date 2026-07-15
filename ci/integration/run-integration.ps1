@@ -1,4 +1,4 @@
-Пока$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 
 $jmeterVersion = if ($env:JMETER_VERSION) { $env:JMETER_VERSION } else { "5.6.2" }
 $rootDir = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
